@@ -4189,7 +4189,7 @@
 	"nodeIssues.credentials.notIdentified": "Credentials with name {name} exist for {type}.",
 	"nodeIssues.credentials.notIdentified.hint": "Credentials are not clearly identified. Please select the correct credentials.",
 	"nodeIssues.credentials.privateNotConnected": "'{name}' end-user credential is not connected for you. Connect yours to execute this step manually.",
-	"nodeIssues.credentials.privateRequiresManualTrigger": "End-user credentials aren't supported with the {triggerName} trigger. Use a Manual, Chat, MCP server, or Sub-workflow trigger, or switch this credential to Fixed.",
+	"nodeIssues.credentials.privateRequiresManualTrigger": "End-user credentials aren't supported with the {triggerName} trigger. Use a Manual, Chat, MCP server, Sub-workflow trigger, or a Webhook trigger set to n8n User Auth — or switch this credential to Fixed.",
 	"nodeIssues.credentials.privateRequiresIdentityExtractor": "End-user credentials with this resolver need a trigger that extracts an identity. Configure an identity extractor on the {triggerName} trigger, or switch this credential to Fixed.",
 	"nodeIssues.input.missing": "No node connected to required input \"{inputName}\"",
 	"ndv.trigger.moreInfo": "More info",
