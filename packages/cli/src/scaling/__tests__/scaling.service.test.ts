@@ -33,6 +33,7 @@ vi.mock('bull', () => ({
 const { mcpServer } = vi.hoisted(() => ({
 	mcpServer: {
 		hasSession: vi.fn(),
+		hasPendingResponse: vi.fn(),
 		handleWorkerResponse: vi.fn(),
 		setSessionStore: vi.fn(),
 		setExecutionStrategy: vi.fn(),
@@ -684,6 +685,7 @@ describe('ScalingService', () => {
 		it('should not restore an offloaded body on a main that does not hold the session', async () => {
 			await scalingService.setupQueue();
 			mcpServer.hasSession.mockReturnValue(false);
+			mcpServer.hasPendingResponse.mockReturnValue(false);
 
 			const messageHandler = queue.on.mock.calls.find(
 				([event]) => (event as string) === 'global:progress',
@@ -704,8 +706,47 @@ describe('ScalingService', () => {
 			});
 
 			await vi.waitFor(() => expect(mcpServer.hasSession).toHaveBeenCalledWith('session-trigger'));
+			expect(mcpServer.hasPendingResponse).toHaveBeenCalledWith('session-trigger', 'msg-trigger');
 			expect(webhookResponseRelay.restoreOffloadedBody).not.toHaveBeenCalled();
 			expect(mcpServer.handleWorkerResponse).not.toHaveBeenCalled();
+		});
+
+		it('should deliver a response a pending call awaits when the transport is gone', async () => {
+			await scalingService.setupQueue();
+			mcpServer.hasSession.mockReturnValue(false);
+			mcpServer.hasPendingResponse.mockReturnValue(true);
+			webhookResponseRelay.restoreOffloadedBody.mockImplementation(async (response) => response);
+
+			const messageHandler = queue.on.mock.calls.find(
+				([event]) => (event as string) === 'global:progress',
+			)?.[1] as (jobId: JobId, msg: unknown) => void;
+
+			const response = {
+				body: { binaryData: { id: 'database:abc' } },
+				headers: {},
+				statusCode: 200,
+			};
+
+			messageHandler('job-trigger', {
+				kind: 'mcp-response',
+				executionId: 'exec-456',
+				mcpType: 'trigger',
+				sessionId: 'session-trigger',
+				messageId: 'msg-trigger',
+				response,
+				workerId: 'worker-xyz',
+			});
+
+			await vi.waitFor(() =>
+				expect(mcpServer.handleWorkerResponse).toHaveBeenCalledWith(
+					'session-trigger',
+					'msg-trigger',
+					response,
+				),
+			);
+			expect(webhookResponseRelay.restoreOffloadedBody).toHaveBeenCalledWith(response, {
+				reclaim: false,
+			});
 		});
 	});
 });

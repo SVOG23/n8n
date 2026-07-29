@@ -486,7 +486,10 @@ export class ScalingService {
 				const { McpServer } = await import('@n8n/n8n-nodes-langchain/mcp/core');
 				const mcpServer = McpServer.instance(this.logger);
 
-				if (mcpServer.hasSession(sessionId)) {
+				const holdsResponse =
+					mcpServer.hasSession(sessionId) || mcpServer.hasPendingResponse(sessionId, messageId);
+
+				if (holdsResponse) {
 					// Holding the session does not make this main the sole reader: a second
 					// main recreates the transport when a request for the session lands on
 					// it. So the stored body is left in place, and execution pruning
