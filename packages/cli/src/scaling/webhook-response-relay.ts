@@ -109,7 +109,11 @@ export class WebhookResponseRelay {
 	 *
 	 * @throws UserError When:
 	 * - the response is over the limit and no store shared with main can hold its body,
-	 * - or when the part of the response that cannot be offloaded is over the limit on its own.
+	 * - or when what is left once the body is offloaded is over the limit on its own,
+	 * - or when the response has no offload path and is over the limit as a whole.
+	 *
+	 * A stream body is the one exception to measuring a whole response: it cannot be
+	 * measured without being consumed, so only the rest of the response is asserted on.
 	 */
 	async prepare(
 		response: IExecuteResponsePromiseData,
@@ -121,14 +125,14 @@ export class WebhookResponseRelay {
 		}
 
 		const { body, ...rest } = response;
-		this.assertFitsInline(rest);
-
 		const offloadable = asOffloadablePayload(body);
 
 		if (!offloadable) {
-			this.assertFitsInline(body);
+			this.assertFitsInline(body instanceof Readable ? rest : response);
 			return response;
 		}
+
+		this.assertFitsInline(rest);
 
 		if (!this.exceedsInline(response, offloadable)) {
 			return encodeBufferBody(response);

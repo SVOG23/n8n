@@ -346,6 +346,24 @@ describe('WebhookResponseRelay', () => {
 			expect(binaryDataService.store).not.toHaveBeenCalled();
 		});
 
+		it('rejects oversized headers beside a stream body, which is exempt from measuring', async () => {
+			const { relay } = buildRelay();
+			const response = fullResponse(Readable.from('hello'), {
+				'x-data': 'x'.repeat(3 * ONE_MIB),
+			});
+
+			await expect(relay.prepare(response, ctx)).rejects.toThrow(UserError);
+		});
+
+		it('rejects a non-offloadable body and headers that only fit the limit apart', async () => {
+			const { relay, binaryDataService } = buildRelay();
+			const body = { binaryData: { id: 'database:abc' }, blob: 'x'.repeat(1.5 * ONE_MIB) };
+			const response = fullResponse(body, { 'x-data': 'y'.repeat(1.5 * ONE_MIB) });
+
+			await expect(relay.prepare(response, ctx)).rejects.toThrow(UserError);
+			expect(binaryDataService.store).not.toHaveBeenCalled();
+		});
+
 		it('rejects an oversized payload shaped like a binary-data reference that is not a full response', async () => {
 			const { relay, binaryDataService } = buildRelay();
 			const payload = { binaryData: { id: 'database:abc' }, toolResult: 'x'.repeat(3 * ONE_MIB) };
