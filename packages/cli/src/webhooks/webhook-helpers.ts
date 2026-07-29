@@ -331,6 +331,7 @@ export function setupResponseNodePromise(
 				applySandboxCSP(res);
 				try {
 					const stream = await Container.get(BinaryDataService).getAsStream(binaryData.id);
+					res.once('close', () => stream.destroy());
 					stream.pipe(res, { end: false });
 					await finished(stream);
 				} finally {

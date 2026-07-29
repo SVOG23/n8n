@@ -316,6 +316,37 @@ describe('setupResponseNodePromise', () => {
 		expect(webhookResponseRelay.deleteOffloadedBody).toHaveBeenCalledWith(response);
 	});
 
+	test('should destroy the stream when the client goes away, so delivery settles', async () => {
+		const stream = mock<Readable>();
+		binaryDataService.getAsStream.mockResolvedValue(stream);
+
+		setupResponseNodePromise(
+			responsePromise,
+			res,
+			responseCallback,
+			workflowStartNode,
+			executionId,
+			workflow,
+		);
+
+		responsePromise.resolve({
+			body: { binaryData: { id: 'binary-123' } },
+			headers: {},
+			statusCode: 200,
+		} as unknown as IN8nHttpFullResponse);
+		await new Promise(process.nextTick);
+
+		const closeHandler = res.once.mock.calls.find(([event]) => event === 'close')?.[1] as
+			| (() => void)
+			| undefined;
+		expect(closeHandler).toBeDefined();
+		expect(stream.destroy).not.toHaveBeenCalled();
+
+		closeHandler!();
+
+		expect(stream.destroy).toHaveBeenCalled();
+	});
+
 	test('should reclaim an offloaded body even when streaming fails', async () => {
 		binaryDataService.getAsStream.mockRejectedValue(new Error('store is down'));
 
