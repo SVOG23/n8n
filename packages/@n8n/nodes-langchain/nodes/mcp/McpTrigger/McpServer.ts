@@ -300,7 +300,7 @@ export class McpServer {
 	}
 
 	hasSession(sessionId: string): boolean {
-		return this.sessionManager.getTransport(sessionId) !== undefined;
+		return this.getTransport(sessionId) !== undefined;
 	}
 
 	handleWorkerResponse(sessionId: string, messageId: string, result: unknown): void {
