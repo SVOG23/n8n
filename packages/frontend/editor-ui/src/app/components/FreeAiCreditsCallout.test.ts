@@ -10,14 +10,14 @@ import { useRootStore } from '@n8n/stores/useRootStore';
 import { useToast } from '@/app/composables/useToast';
 import { renderComponent } from '@/__tests__/render';
 import { mockedStore } from '@/__tests__/utils';
-import { useTelemetry } from '@/app/composables/useTelemetry';
+import { useTelemetry } from '@n8n/composables/useTelemetry';
 import { useFreeAiCredits } from '@/app/composables/useFreeAiCredits';
 
 vi.mock('@/app/composables/useToast', () => ({
 	useToast: vi.fn(),
 }));
 
-vi.mock('@/app/composables/useTelemetry', () => ({
+vi.mock('@n8n/composables/useTelemetry', () => ({
 	useTelemetry: vi.fn(),
 }));
 
@@ -33,9 +33,13 @@ vi.mock('@/features/settings/users/users.store', () => ({
 	useUsersStore: vi.fn(),
 }));
 
-vi.mock('@/features/ndv/shared/ndv.store', () => ({
-	useNDVStore: vi.fn(),
-}));
+vi.mock('@/features/ndv/shared/ndv.store', () => {
+	const useNDVStore = vi.fn();
+	return {
+		useNDVStore,
+		injectNDVStore: vi.fn(() => ({ value: useNDVStore() })),
+	};
+});
 
 vi.mock('@/features/collaboration/projects/projects.store', () => ({
 	useProjectsStore: vi.fn(),

@@ -9,7 +9,7 @@ import { NodeConnectionTypes, type INodeTypeDescription } from 'n8n-workflow';
 import { fireEvent, waitFor } from '@testing-library/vue';
 
 import AgentToolsModal from '../components/AgentToolsModal.vue';
-import type { AgentJsonToolRef } from '../types';
+import type { AgentJsonMcpServerConfig, AgentJsonToolRef } from '../types';
 import type { IWorkflowDb } from '@/Interface';
 
 const showErrorMock = vi.fn();
@@ -22,6 +22,27 @@ vi.mock('@/app/composables/useToast', () => ({
 	}),
 }));
 
+const installNodeMock = vi.hoisted(() => vi.fn());
+vi.mock('@/features/settings/communityNodes/composables/useInstallNode', () => ({
+	useInstallNode: () => ({ installNode: installNodeMock }),
+}));
+
+const isAdminOrOwnerMock = vi.hoisted(() => ({ value: true }));
+vi.mock('@/features/settings/users/users.store', () => ({
+	useUsersStore: () => ({
+		get isAdminOrOwner() {
+			return isAdminOrOwnerMock.value;
+		},
+	}),
+}));
+
+vi.mock('virtual:icons/fa-solid/shield-alt', () => ({
+	default: {
+		name: 'ShieldIcon',
+		template: '<span data-test-id="agent-tool-verified-badge" />',
+	},
+}));
+
 const getWorkflowMock = vi.fn();
 vi.mock('@/app/api/workflows', () => ({
 	getWorkflow: (...args: unknown[]) => getWorkflowMock(...args),
@@ -32,8 +53,63 @@ vi.mock('virtual:node-popularity-data', () => ({
 		{ id: 'n8n-nodes-base.slack', popularity: 100 },
 		{ id: 'n8n-nodes-base.gmail', popularity: 90 },
 		{ id: 'n8n-nodes-base.github', popularity: 50 },
+		{ id: '@n8n/n8n-nodes-langchain.openAi', popularity: 45 },
 		{ id: 'toolWikipedia', popularity: 40 },
+		{ id: '@n8n/n8n-nodes-langchain.toolCode', popularity: 30 },
+		{ id: 'mcpClientTool', popularity: 20 },
+		{ id: 'toolCalculator', popularity: 10 },
+		{ id: 'toolThink', popularity: 9 },
 	],
+}));
+
+vi.mock('@n8n/design-system', () => ({
+	N8nPlugin: {
+		install: vi.fn(),
+	},
+	N8nButton: {
+		props: ['variant', 'size', 'loading', 'disabled'],
+		template: '<button :disabled="disabled"><slot /></button>',
+	},
+	N8nCollapsiblePanel: {
+		props: ['modelValue', 'disableAnimation'],
+		emits: ['update:modelValue'],
+		template: `
+			<section>
+				<button type="button" @click="$emit('update:modelValue', !modelValue)">
+					<slot name="title" />
+				</button>
+				<div v-show="modelValue"><slot /></div>
+			</section>
+		`,
+	},
+	N8nHeading: {
+		props: ['tag', 'size', 'color'],
+		template: '<component :is="tag || \'div\'"><slot /></component>',
+	},
+	N8nIcon: {
+		props: ['icon', 'size'],
+		template: '<span />',
+	},
+	N8nIconButton: {
+		props: ['icon', 'variant', 'text', 'ariaLabel'],
+		emits: ['click'],
+		template:
+			'<button type="button" :aria-label="ariaLabel" v-bind="$attrs" @click="$emit(\'click\')"><slot /></button>',
+	},
+	N8nInput: {
+		props: ['modelValue', 'placeholder', 'clearable'],
+		emits: ['update:modelValue'],
+		template:
+			'<label><slot name="prefix" /><input :value="modelValue" :placeholder="placeholder" @input="$emit(\'update:modelValue\', $event.target.value)" /></label>',
+	},
+	N8nText: {
+		props: ['color', 'size'],
+		template: '<span><slot /></span>',
+	},
+	N8nTooltip: {
+		props: ['content', 'placement'],
+		template: '<div :data-tooltip-content="content"><slot /></div>',
+	},
 }));
 
 vi.mock('@n8n/i18n', () => {
@@ -42,6 +118,10 @@ vi.mock('@n8n/i18n', () => {
 			if (opts?.interpolate) {
 				const { count, query } = opts.interpolate as { count?: number; query?: string };
 				if (key === 'agents.tools.availableTools') return `Available tools (${count})`;
+				if (key === 'agents.tools.availableAiTools') return `AI tools (${count})`;
+				if (key === 'agents.tools.availableN8nTools') return `n8n tools (${count})`;
+				if (key === 'agents.tools.availableExternalTools') return `External tools (${count})`;
+				if (key === 'agents.tools.availableMcpServers') return `MCP servers (${count})`;
 				if (key === 'agents.tools.availableWorkflows') return `Workflows (${count})`;
 				if (key === 'agents.tools.noResults.withQuery') return `No tools match “${query}”`;
 			}
@@ -54,6 +134,7 @@ vi.mock('@n8n/i18n', () => {
 				'agents.tools.configure': 'Configure',
 				'agents.tools.added': 'Tool added',
 				'agents.tools.addCredentials': 'Add credentials',
+				'agents.tools.needsApproval': 'Needs approval',
 			};
 			return map[key] ?? key;
 		},
@@ -135,11 +216,166 @@ const WIKIPEDIA: INodeTypeDescription = {
 	credentials: [],
 };
 
+function makeAiToolFixture(
+	name: string,
+	displayName: string,
+	description: string,
+): INodeTypeDescription {
+	return {
+		...SLACK,
+		displayName,
+		name,
+		description,
+		defaults: { name: displayName },
+		credentials: [],
+		codex: {
+			categories: ['AI'],
+			subcategories: {
+				AI: ['Tools'],
+				Tools: ['Other Tools'],
+			},
+		},
+	};
+}
+
+const OPENAI: INodeTypeDescription = {
+	...SLACK,
+	displayName: 'OpenAI',
+	name: '@n8n/n8n-nodes-langchain.openAi',
+	description: 'Use OpenAI models',
+	defaults: { name: 'OpenAI' },
+	inputs: ['main'],
+	credentials: [],
+};
+
+const CODE_TOOL: INodeTypeDescription = {
+	...SLACK,
+	displayName: 'Code Tool',
+	name: '@n8n/n8n-nodes-langchain.toolCode',
+	description: 'Run custom code',
+	defaults: { name: 'Code Tool' },
+	credentials: [],
+	codex: {
+		categories: ['AI'],
+		subcategories: {
+			AI: ['Tools'],
+			Tools: ['Recommended Tools'],
+		},
+	},
+};
+
+const CALCULATOR = makeAiToolFixture('toolCalculator', 'Calculator', 'Do math');
+
+const THINK_TOOL = makeAiToolFixture('toolThink', 'Think Tool', 'Pause to think');
+
+const ANTHROPIC_TOOL = makeAiToolFixture(
+	'@n8n/n8n-nodes-langchain.anthropicTool',
+	'Anthropic Tool',
+	'Interact with Anthropic AI models',
+);
+
+const GOOGLE_GEMINI_TOOL = makeAiToolFixture(
+	'@n8n/n8n-nodes-langchain.googleGeminiTool',
+	'Google Gemini Tool',
+	'Interact with Google Gemini AI models',
+);
+
+const MINIMAX_TOOL = makeAiToolFixture(
+	'@n8n/n8n-nodes-langchain.minimaxTool',
+	'MiniMax Tool',
+	'Interact with MiniMax AI models',
+);
+
+const MOONSHOT_TOOL = makeAiToolFixture(
+	'@n8n/n8n-nodes-langchain.moonshotTool',
+	'Moonshot Kimi Tool',
+	'Interact with Moonshot Kimi AI models',
+);
+
+const OLLAMA_TOOL = makeAiToolFixture(
+	'@n8n/n8n-nodes-langchain.ollamaTool',
+	'Ollama Tool',
+	'Interact with Ollama AI models',
+);
+
+const CHAT_TOOL = makeAiToolFixture(
+	'@n8n/n8n-nodes-langchain.chatTool',
+	'Chat Tool',
+	'Send a message into the chat',
+);
+
+const MCP_TOOL: INodeTypeDescription = {
+	...SLACK,
+	displayName: 'GitHub MCP',
+	name: 'mcpClientTool',
+	description: 'Connect to an MCP server',
+	defaults: { name: 'GitHub MCP' },
+	credentials: [],
+	codex: {
+		categories: ['AI'],
+		subcategories: {
+			AI: ['Tools'],
+			Tools: ['Model Context Protocol'],
+		},
+	},
+};
+
 const NODE_WITH_INPUTS: INodeTypeDescription = {
 	...SLACK,
 	name: 'n8n-nodes-base.subagent',
 	displayName: 'Subagent',
 	inputs: ['main'],
+};
+
+// Verified community node shipped as an uninstalled `-preview` entry, with the
+// backend-synthesized `…Tool` variant (outputs = ai_tool, inputs = []).
+const SCRAPERAPI_PREVIEW_TOOL: INodeTypeDescription = {
+	...SLACK,
+	displayName: 'ScraperAPI Tool',
+	name: 'n8n-nodes-scraperapi.scraperApi-previewTool',
+	description: 'Scrape the web with ScraperAPI',
+	defaults: { name: 'ScraperAPI' },
+	credentials: [{ name: 'scraperApiApi', required: true }],
+	codex: { categories: ['AI'], subcategories: { AI: ['Tools'], Tools: ['Other Tools'] } },
+};
+
+const SCRAPERAPI_INSTALLED_TOOL: INodeTypeDescription = {
+	...SCRAPERAPI_PREVIEW_TOOL,
+	name: 'n8n-nodes-scraperapi.scraperApiTool',
+};
+
+const UNOFFICIAL_PREVIEW_TOOL: INodeTypeDescription = {
+	...SLACK,
+	displayName: 'WeirdThing Tool',
+	name: '@acme/n8n-nodes-acme.weirdThing-previewTool',
+	description: 'Do weird things',
+	defaults: { name: 'WeirdThing' },
+	credentials: [],
+	codex: { categories: ['AI'], subcategories: { AI: ['Tools'], Tools: ['Other Tools'] } },
+};
+
+type CommunityEntry = {
+	name: string;
+	packageName: string;
+	isOfficialNode: boolean;
+	isInstalled: boolean;
+	nodeDescription: INodeTypeDescription;
+};
+
+const SCRAPERAPI_COMMUNITY: CommunityEntry = {
+	name: 'n8n-nodes-scraperapi.scraperApi-preview',
+	packageName: 'n8n-nodes-scraperapi',
+	isOfficialNode: true,
+	isInstalled: false,
+	nodeDescription: SCRAPERAPI_PREVIEW_TOOL,
+};
+
+const UNOFFICIAL_COMMUNITY: CommunityEntry = {
+	name: '@acme/n8n-nodes-acme.weirdThing-preview',
+	packageName: '@acme/n8n-nodes-acme',
+	isOfficialNode: false,
+	isInstalled: false,
+	nodeDescription: UNOFFICIAL_PREVIEW_TOOL,
 };
 
 const ElDialogStub = {
@@ -205,6 +441,54 @@ function makeWorkflowNode(type: string, name: string): IWorkflowDb['nodes'][numb
 	};
 }
 
+function defaultProps(tools: AgentJsonToolRef[] = [], onConfirm = vi.fn()) {
+	return {
+		props: {
+			modalName: MODAL_NAME,
+			data: { tools, onConfirm },
+		},
+	};
+}
+
+function toolRef(
+	nodeType: string,
+	overrides: Partial<Extract<AgentJsonToolRef, { type: 'node' }>['node']> = {},
+): Extract<AgentJsonToolRef, { type: 'node' }> {
+	return {
+		type: 'node',
+		name: nodeType,
+		node: {
+			nodeType,
+			nodeTypeVersion: 1,
+			credentials: { slackApi: { id: 'c', name: 'cred' } },
+			nodeParameters: {},
+			...overrides,
+		},
+	};
+}
+
+async function typeInSearch(container: Element, value: string) {
+	const input = container.querySelector('input') as HTMLInputElement | null;
+	expect(input).not.toBeNull();
+	await fireEvent.update(input!, value);
+}
+
+function seedCommunityPreviews(entries: CommunityEntry[]) {
+	const store = mockedStore(useNodeTypesStore);
+	const byName = new Map<string, CommunityEntry>();
+	for (const entry of entries) {
+		byName.set(entry.name, entry);
+		byName.set(entry.nodeDescription.name, entry);
+	}
+	store.communityNodeType = vi
+		.fn()
+		.mockImplementation((name: string) => byName.get(name) ?? undefined);
+	store.communityNodesAndActions = {
+		mergedNodes: entries.filter((e) => !e.isOfficialNode).map((e) => e.nodeDescription),
+		actions: {},
+	};
+}
+
 describe('AgentToolsModal', () => {
 	let nodeTypesStore: ReturnType<typeof mockedStore<typeof useNodeTypesStore>>;
 	let uiStore: ReturnType<typeof mockedStore<typeof useUIStore>>;
@@ -224,12 +508,31 @@ describe('AgentToolsModal', () => {
 			if (name === GMAIL.name) return GMAIL;
 			if (name === GITHUB.name) return GITHUB;
 			if (name === WIKIPEDIA.name) return WIKIPEDIA;
+			if (name === OPENAI.name) return OPENAI;
+			if (name === CODE_TOOL.name) return CODE_TOOL;
+			if (name === CALCULATOR.name) return CALCULATOR;
+			if (name === THINK_TOOL.name) return THINK_TOOL;
+			if (name === ANTHROPIC_TOOL.name) return ANTHROPIC_TOOL;
+			if (name === GOOGLE_GEMINI_TOOL.name) return GOOGLE_GEMINI_TOOL;
+			if (name === MINIMAX_TOOL.name) return MINIMAX_TOOL;
+			if (name === MOONSHOT_TOOL.name) return MOONSHOT_TOOL;
+			if (name === OLLAMA_TOOL.name) return OLLAMA_TOOL;
+			if (name === CHAT_TOOL.name) return CHAT_TOOL;
+			if (name === MCP_TOOL.name) return MCP_TOOL;
 			if (name === NODE_WITH_INPUTS.name) return NODE_WITH_INPUTS;
 			return null;
 		});
 		nodeTypesStore.visibleNodeTypesByOutputConnectionTypeNames = {
 			[NodeConnectionTypes.AiTool]: [SLACK.name, GMAIL.name, GITHUB.name, NODE_WITH_INPUTS.name],
 		};
+
+		// Defaults: no community catalog. Community tests opt in via seedCommunityPreviews.
+		nodeTypesStore.communityNodeType = vi.fn().mockReturnValue(undefined);
+		nodeTypesStore.communityNodesAndActions = { mergedNodes: [], actions: {} };
+		nodeTypesStore.fetchCommunityNodePreviews = vi.fn().mockResolvedValue(undefined);
+		isAdminOrOwnerMock.value = true;
+		installNodeMock.mockReset();
+		installNodeMock.mockResolvedValue({ success: true });
 
 		workflowsListStore.fetchAllWorkflows = vi.fn().mockResolvedValue([]);
 		// Default: no workflows returned from the fetch. Tests opt in by calling
@@ -254,38 +557,6 @@ describe('AgentToolsModal', () => {
 		workflowsListStore.searchWorkflows = vi.fn().mockResolvedValue(workflows);
 	}
 
-	function defaultProps(tools: AgentJsonToolRef[] = [], onConfirm = vi.fn()) {
-		return {
-			props: {
-				modalName: MODAL_NAME,
-				data: { tools, onConfirm },
-			},
-		};
-	}
-
-	function toolRef(
-		nodeType: string,
-		overrides: Partial<Extract<AgentJsonToolRef, { type: 'node' }>['node']> = {},
-	): Extract<AgentJsonToolRef, { type: 'node' }> {
-		return {
-			type: 'node',
-			name: nodeType,
-			node: {
-				nodeType,
-				nodeTypeVersion: 1,
-				credentials: { slackApi: { id: 'c', name: 'cred' } },
-				nodeParameters: {},
-				...overrides,
-			},
-		};
-	}
-
-	async function typeInSearch(container: Element, value: string) {
-		const input = container.querySelector('input') as HTMLInputElement | null;
-		expect(input).not.toBeNull();
-		await fireEvent.update(input!, value);
-	}
-
 	it('renders the modal header', () => {
 		const { getByRole } = renderComponent(defaultProps());
 		expect(getByRole('dialog').textContent).toContain('Tools');
@@ -293,7 +564,7 @@ describe('AgentToolsModal', () => {
 
 	it('lists available node-type tools, excluding nodes that take main inputs', () => {
 		const { getByTestId, queryByText } = renderComponent(defaultProps());
-		const available = getByTestId('agent-tools-available-list');
+		const available = getByTestId('agent-tools-available-external-list');
 		expect(available.textContent).toContain('Slack');
 		expect(available.textContent).toContain('Gmail');
 		expect(available.textContent).toContain('GitHub');
@@ -312,6 +583,14 @@ describe('AgentToolsModal', () => {
 		expect(connected.textContent).toContain(SLACK.name);
 	});
 
+	it('shows an approval badge for configured tools that require approval', () => {
+		const { getByTestId } = renderComponent(
+			defaultProps([{ ...toolRef(SLACK.name), requireApproval: true }]),
+		);
+		const connected = getByTestId('agent-tools-connected-list');
+		expect(connected.textContent).toContain('Needs approval');
+	});
+
 	it('surfaces the "Add credentials" chip on rows missing credentials', () => {
 		const tool = toolRef(GMAIL.name, { credentials: undefined });
 		const { queryByTestId } = renderComponent(defaultProps([tool]));
@@ -328,7 +607,7 @@ describe('AgentToolsModal', () => {
 		// Users can add a 2nd Slack tool with a different name + credentials.
 		// The config modal enforces tool-name uniqueness on save.
 		const { getByTestId } = renderComponent(defaultProps([toolRef(SLACK.name)]));
-		const available = getByTestId('agent-tools-available-list');
+		const available = getByTestId('agent-tools-available-external-list');
 		expect(available.textContent).toContain('Slack');
 		expect(available.textContent).toContain('Gmail');
 	});
@@ -341,7 +620,7 @@ describe('AgentToolsModal', () => {
 		await typeInSearch(container, 'gmail');
 
 		await waitFor(() => {
-			const available = getByTestId('agent-tools-available-list');
+			const available = getByTestId('agent-tools-available-external-list');
 			expect(available.textContent).toContain('Gmail');
 			expect(available.textContent).not.toContain('GitHub');
 		});
@@ -354,7 +633,7 @@ describe('AgentToolsModal', () => {
 
 		await waitFor(() => {
 			expect(queryByText(/No tools match.*zzzzz/)).not.toBeNull();
-			expect(queryByTestId('agent-tools-available-list')).toBeNull();
+			expect(queryByTestId('agent-tools-available-external-list')).toBeNull();
 		});
 	});
 
@@ -362,7 +641,7 @@ describe('AgentToolsModal', () => {
 		const onConfirm = vi.fn();
 		const { getByTestId } = renderComponent(defaultProps([], onConfirm));
 
-		const available = getByTestId('agent-tools-available-list');
+		const available = getByTestId('agent-tools-available-external-list');
 		const addButton = available.querySelector('button');
 		expect(addButton).not.toBeNull();
 		await fireEvent.click(addButton!);
@@ -387,12 +666,12 @@ describe('AgentToolsModal', () => {
 		const onConfirm = vi.fn();
 		const { getByTestId } = renderComponent(defaultProps([], onConfirm));
 
-		const available = getByTestId('agent-tools-available-list');
+		const available = getByTestId('agent-tools-available-external-list');
 		await fireEvent.click(available.querySelector('button')!);
 
 		expect(uiStore.openModalWithData).not.toHaveBeenCalled();
 		expect(onConfirm).toHaveBeenCalledTimes(1);
-		const [tools] = onConfirm.mock.calls[0];
+		const [{ tools }] = onConfirm.mock.calls[0];
 		expect(tools[0].id).toBeUndefined();
 		expect(tools).toEqual([
 			expect.objectContaining({
@@ -425,10 +704,10 @@ describe('AgentToolsModal', () => {
 		const onConfirm = vi.fn();
 		const { getByTestId } = renderComponent(defaultProps([existing], onConfirm));
 
-		const available = getByTestId('agent-tools-available-list');
+		const available = getByTestId('agent-tools-available-external-list');
 		await fireEvent.click(available.querySelector('button')!);
 
-		const [tools] = onConfirm.mock.calls[0];
+		const [{ tools }] = onConfirm.mock.calls[0];
 		expect(tools[1]).toMatchObject({ name: 'Wikipedia (1)' });
 	});
 
@@ -436,7 +715,7 @@ describe('AgentToolsModal', () => {
 		const onConfirm = vi.fn();
 		const { getByTestId } = renderComponent(defaultProps([], onConfirm));
 
-		const available = getByTestId('agent-tools-available-list');
+		const available = getByTestId('agent-tools-available-external-list');
 		await fireEvent.click(available.querySelector('button')!);
 
 		const [payload] = (uiStore.openModalWithData as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -454,17 +733,116 @@ describe('AgentToolsModal', () => {
 		payload.data.onConfirm(configuredRef);
 
 		expect(onConfirm).toHaveBeenCalledTimes(1);
-		const [tools] = onConfirm.mock.calls[0];
+		const [{ tools }] = onConfirm.mock.calls[0];
 		expect(tools).toHaveLength(1);
 		expect(tools[0]).toStrictEqual(configuredRef);
 		expect(uiStore.closeModal).toHaveBeenCalledWith(MODAL_NAME);
 		expect(showMessageMock).toHaveBeenCalledWith({ title: 'Tool added', type: 'success' });
 	});
 
+	it('commits an added MCP server to the host onConfirm once its config modal saves', async () => {
+		nodeTypesStore.visibleNodeTypesByOutputConnectionTypeNames = {
+			[NodeConnectionTypes.AiTool]: [MCP_TOOL.name],
+		};
+		const onConfirm = vi.fn();
+		const { getByTestId } = renderComponent({
+			props: {
+				modalName: MODAL_NAME,
+				data: { tools: [], mcpServers: [], onConfirm },
+			},
+		});
+
+		// Connect on an available MCP entry opens the MCP config modal first.
+		const mcpList = getByTestId('agent-tools-available-mcp-list');
+		await fireEvent.click(mcpList.querySelector('button')!);
+
+		const [payload] = (uiStore.openModalWithData as ReturnType<typeof vi.fn>).mock.calls[0];
+		expect(payload.data.kind).toBe('mcpServer');
+
+		const savedServer: AgentJsonMcpServerConfig = {
+			name: 'github',
+			url: 'https://mcp.example.com',
+			transport: 'streamableHttp',
+			authentication: 'none',
+		};
+		payload.data.onConfirm(savedServer);
+
+		// Saving commits immediately — the server must reach the host payload.
+		expect(onConfirm).toHaveBeenCalledWith({ tools: [], mcpServers: [savedServer] });
+	});
+
 	it('shows the available tools count in the section heading', () => {
 		const { getByTestId } = renderComponent(defaultProps());
 		const wrapper = getByTestId('agent-tools-list');
-		expect(wrapper.textContent).toContain('Available tools (3)');
+		expect(wrapper.textContent).toContain('External tools (3)');
+	});
+
+	it('groups available entries into workflows, AI tools, n8n tools, and external tools', async () => {
+		nodeTypesStore.visibleNodeTypesByOutputConnectionTypeNames = {
+			[NodeConnectionTypes.AiTool]: [
+				SLACK.name,
+				CODE_TOOL.name,
+				MCP_TOOL.name,
+				NODE_WITH_INPUTS.name,
+			],
+		};
+		seedWorkflows([makeWorkflow({ id: 'wf-1', name: 'Daily sales digest' })]);
+
+		const { getByTestId, queryByText } = renderComponent({
+			props: {
+				modalName: MODAL_NAME,
+				data: { tools: [], projectId: 'p-42', onConfirm: vi.fn() },
+			},
+		});
+
+		const workflows = await waitFor(() => getByTestId('agent-tools-available-workflows-list'));
+		const aiTools = getByTestId('agent-tools-available-ai-list');
+		const n8nTools = getByTestId('agent-tools-available-n8n-list');
+		const externalTools = getByTestId('agent-tools-available-external-list');
+		const mcpTools = getByTestId('agent-tools-available-mcp-list');
+		const wrapper = getByTestId('agent-tools-list');
+
+		expect(wrapper.textContent).toContain('Workflows (1)');
+		expect(wrapper.textContent).toContain('MCP servers (1)');
+		expect(wrapper.textContent).toContain('AI tools (1)');
+		expect(wrapper.textContent).toContain('n8n tools (1)');
+		expect(wrapper.textContent).toContain('External tools (1)');
+		expect(workflows.textContent).toContain('Daily sales digest');
+		expect(aiTools.textContent).toContain('OpenAI');
+		expect(n8nTools.textContent).toContain('Code Tool');
+		expect(externalTools.textContent).toContain('Slack');
+		expect(mcpTools.textContent).toContain('GitHub MCP');
+		expect(queryByText('Subagent')).toBeNull();
+	});
+
+	it('keeps utility AI tools visible and hides generated AI model tool counterparts', () => {
+		nodeTypesStore.visibleNodeTypesByOutputConnectionTypeNames = {
+			[NodeConnectionTypes.AiTool]: [
+				CALCULATOR.name,
+				THINK_TOOL.name,
+				ANTHROPIC_TOOL.name,
+				GOOGLE_GEMINI_TOOL.name,
+				MINIMAX_TOOL.name,
+				MOONSHOT_TOOL.name,
+				OLLAMA_TOOL.name,
+				CHAT_TOOL.name,
+				SLACK.name,
+			],
+		};
+
+		const { getByTestId, queryByText } = renderComponent(defaultProps());
+		const aiTools = getByTestId('agent-tools-available-ai-list');
+		const externalTools = getByTestId('agent-tools-available-external-list');
+
+		expect(aiTools.textContent).toContain('Calculator');
+		expect(aiTools.textContent).toContain('Think Tool');
+		expect(externalTools.textContent).toContain('Slack');
+		expect(queryByText('Anthropic Tool')).toBeNull();
+		expect(queryByText('Google Gemini Tool')).toBeNull();
+		expect(queryByText('MiniMax Tool')).toBeNull();
+		expect(queryByText('Moonshot Kimi Tool')).toBeNull();
+		expect(queryByText('Ollama Tool')).toBeNull();
+		expect(queryByText('Chat Tool')).toBeNull();
 	});
 
 	it('opens the config modal with the clicked tool ref when the gear is clicked', async () => {
@@ -504,7 +882,7 @@ describe('AgentToolsModal', () => {
 		payload.data.onConfirm(editedRef);
 
 		expect(onConfirm).toHaveBeenCalled();
-		const [committed] = onConfirm.mock.calls[onConfirm.mock.calls.length - 1];
+		const [{ tools: committed }] = onConfirm.mock.calls[onConfirm.mock.calls.length - 1];
 		expect(committed).toHaveLength(1);
 		expect(committed[0].name).toBe('Slack renamed');
 	});
@@ -519,14 +897,13 @@ describe('AgentToolsModal', () => {
 			});
 			expect(workflowsListStore.searchWorkflows).toHaveBeenCalledWith({
 				projectId: 'p-42',
-				triggerNodeTypes: expect.arrayContaining([
+				triggerNodeTypes: [
+					'n8n-nodes-base.manualTrigger',
 					'n8n-nodes-base.executeWorkflowTrigger',
 					'@n8n/n8n-nodes-langchain.chatTrigger',
-					'n8n-nodes-base.manualTrigger',
-					'n8n-nodes-base.scheduleTrigger',
 					'n8n-nodes-base.formTrigger',
 					'n8n-nodes-base.webhook',
-				]),
+				],
 				select: ['id', 'name', 'description', 'isArchived', 'nodes'],
 			});
 		});
@@ -778,11 +1155,145 @@ describe('AgentToolsModal', () => {
 			payload.data.onConfirm(savedRef);
 
 			expect(onConfirm).toHaveBeenCalledTimes(1);
-			const [tools] = onConfirm.mock.calls[0];
+			const [{ tools }] = onConfirm.mock.calls[0];
 			expect(tools).toHaveLength(1);
 			expect(tools[0]).toStrictEqual(savedRef);
 			expect(uiStore.closeModal).toHaveBeenCalledWith(MODAL_NAME);
 			expect(showMessageMock).toHaveBeenCalledWith({ title: 'Tool added', type: 'success' });
 		});
+	});
+});
+
+describe('AgentToolsModal — community preview tools', () => {
+	let nodeTypesStore: ReturnType<typeof mockedStore<typeof useNodeTypesStore>>;
+	let uiStore: ReturnType<typeof mockedStore<typeof useUIStore>>;
+	let workflowsListStore: ReturnType<typeof mockedStore<typeof useWorkflowsListStore>>;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uuidMockState.counter = 0;
+		createTestingPinia({ stubActions: false });
+
+		nodeTypesStore = mockedStore(useNodeTypesStore);
+		uiStore = mockedStore(useUIStore);
+		workflowsListStore = mockedStore(useWorkflowsListStore);
+		workflowsListStore.searchWorkflows = vi.fn().mockResolvedValue([]);
+
+		// Official preview is in the AiTool index; getNodeType returns null for it
+		// until install, so the modal must fall back to communityNodeType.
+		nodeTypesStore.getNodeType = vi.fn().mockImplementation((name: string) => {
+			if (name === SCRAPERAPI_INSTALLED_TOOL.name) return SCRAPERAPI_INSTALLED_TOOL;
+			return null;
+		});
+		nodeTypesStore.visibleNodeTypesByOutputConnectionTypeNames = {
+			[NodeConnectionTypes.AiTool]: [SCRAPERAPI_PREVIEW_TOOL.name],
+		};
+		nodeTypesStore.communityNodeType = vi.fn().mockReturnValue(undefined);
+		nodeTypesStore.communityNodesAndActions = { mergedNodes: [], actions: {} };
+		nodeTypesStore.fetchCommunityNodePreviews = vi.fn().mockResolvedValue(undefined);
+		isAdminOrOwnerMock.value = true;
+		installNodeMock.mockReset();
+		installNodeMock.mockResolvedValue({ success: true });
+
+		uiStore.openModal(MODAL_NAME);
+		uiStore.closeModal = vi.fn();
+		uiStore.openModalWithData = vi.fn();
+	});
+
+	it('surfaces an uninstalled official verified preview in the Available list with a Verified badge', () => {
+		seedCommunityPreviews([SCRAPERAPI_COMMUNITY]);
+
+		const { getByTestId, queryByTestId } = renderComponent(defaultProps());
+		const external = getByTestId('agent-tools-available-external-list');
+		expect(external.textContent).toContain('ScraperAPI Tool');
+		expect(queryByTestId('agent-tool-verified-badge')).not.toBeNull();
+		expect(queryByTestId('agent-tool-install-button')).not.toBeNull();
+	});
+
+	it('surfaces an unofficial verified preview in search results (not in browse)', async () => {
+		seedCommunityPreviews([UNOFFICIAL_COMMUNITY]);
+		const { getByTestId, queryByText, container } = renderComponent(defaultProps());
+		expect(queryByText('WeirdThing Tool')).toBeNull();
+
+		await typeInSearch(container, 'weird');
+
+		await waitFor(() => {
+			const external = getByTestId('agent-tools-available-external-list');
+			expect(external.textContent).toContain('WeirdThing Tool');
+		});
+	});
+
+	it('installs the community package then opens the config modal with the installed tool variant', async () => {
+		seedCommunityPreviews([SCRAPERAPI_COMMUNITY]);
+		const { getByTestId } = renderComponent(defaultProps());
+
+		const external = getByTestId('agent-tools-available-external-list');
+		const installButton = external.querySelector(
+			'[data-test-id="agent-tool-install-button"]',
+		) as HTMLButtonElement;
+		expect(installButton).not.toBeNull();
+		await fireEvent.click(installButton!);
+
+		await waitFor(() => {
+			expect(installNodeMock).toHaveBeenCalledTimes(1);
+		});
+		expect(installNodeMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'verified',
+				packageName: 'n8n-nodes-scraperapi',
+				nodeType: 'n8n-nodes-scraperapi.scraperApi-preview',
+			}),
+		);
+
+		await waitFor(() => {
+			expect(uiStore.openModalWithData).toHaveBeenCalledTimes(1);
+		});
+		const [payload] = (uiStore.openModalWithData as ReturnType<typeof vi.fn>).mock.calls[0];
+		expect(payload.name).toBe('agentToolConfigModal');
+		expect(payload.data.toolRef).toMatchObject({
+			type: 'node',
+			node: { nodeType: SCRAPERAPI_INSTALLED_TOOL.name },
+		});
+	});
+
+	it('does not add the tool when the install fails', async () => {
+		seedCommunityPreviews([SCRAPERAPI_COMMUNITY]);
+		installNodeMock.mockResolvedValueOnce({ success: false });
+
+		const { getByTestId } = renderComponent(defaultProps());
+		const external = getByTestId('agent-tools-available-external-list');
+		const installButton = external.querySelector(
+			'[data-test-id="agent-tool-install-button"]',
+		) as HTMLButtonElement;
+		await fireEvent.click(installButton!);
+
+		await waitFor(() => {
+			expect(installNodeMock).toHaveBeenCalledTimes(1);
+		});
+		expect(uiStore.openModalWithData).not.toHaveBeenCalled();
+	});
+
+	it('shows a disabled Install button with contact-admin tooltip for non-admins', async () => {
+		isAdminOrOwnerMock.value = false;
+		seedCommunityPreviews([SCRAPERAPI_COMMUNITY]);
+
+		const { getByTestId } = renderComponent(defaultProps());
+		const external = getByTestId('agent-tools-available-external-list');
+		expect(external.textContent).toContain('ScraperAPI Tool');
+
+		const installButton = external.querySelector(
+			'[data-test-id="agent-tool-install-button"]',
+		) as HTMLButtonElement;
+		expect(installButton).not.toBeNull();
+		expect(installButton.disabled).toBe(true);
+
+		const tooltipHost = installButton.closest('[data-tooltip-content]');
+		// i18n test harness returns the key; canvas uses this same contact-admin string.
+		expect(tooltipHost?.getAttribute('data-tooltip-content')).toBe(
+			'communityNodeInfo.contact.admin',
+		);
+
+		await fireEvent.click(installButton);
+		expect(installNodeMock).not.toHaveBeenCalled();
 	});
 });

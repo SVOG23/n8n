@@ -11,14 +11,16 @@ import { ExecutionRepository, WorkflowRepository } from '@n8n/db';
 import { Service } from '@n8n/di';
 import { PROJECT_ADMIN_ROLE_SLUG, PROJECT_OWNER_ROLE_SLUG } from '@n8n/permissions';
 import type { DateTime } from 'luxon';
+import { sleep } from '@n8n/utils/sleep';
 import { InstanceSettings } from 'n8n-core';
-import { createEmptyRunExecutionData, sleep } from 'n8n-workflow';
+import { createEmptyRunExecutionData } from 'n8n-workflow';
 import { ExecutionStatus, type IRun, type ITaskData } from 'n8n-workflow';
 
 import { ARTIFICIAL_TASK_DATA } from '@/constants';
 import { NodeCrashedError } from '@/errors/node-crashed.error';
 import { WorkflowCrashedError } from '@/errors/workflow-crashed.error';
 import { getLifecycleHooksForRegularMain } from '@/execution-lifecycle/execution-lifecycle-hooks';
+import { ExecutionPersistence } from '@/executions/execution-persistence';
 import { Push } from '@/push';
 import { OwnershipService } from '@/services/ownership.service';
 import { UserManagementMailer } from '@/user-management/email/user-management-mailer';
@@ -35,6 +37,7 @@ export class ExecutionRecoveryService {
 		private readonly instanceSettings: InstanceSettings,
 		private readonly push: Push,
 		private readonly executionRepository: ExecutionRepository,
+		private readonly executionPersistence: ExecutionPersistence,
 		private readonly executionsConfig: ExecutionsConfig,
 		private readonly workflowRepository: WorkflowRepository,
 		private readonly userManagementMailer: UserManagementMailer,
@@ -106,7 +109,7 @@ export class ExecutionRecoveryService {
 			executionId: amendedExecution.id,
 		});
 
-		await this.executionRepository.updateExistingExecution(executionId, amendedExecution);
+		await this.executionPersistence.updateExistingExecution(executionId, amendedExecution);
 
 		await this.runHooks(amendedExecution);
 
@@ -132,7 +135,7 @@ export class ExecutionRecoveryService {
 
 		if (Object.keys(nodeMessagesByName).length === 0) return null;
 
-		const execution = await this.executionRepository.findSingleExecution(executionId, {
+		const execution = await this.executionPersistence.findSingleExecution(executionId, {
 			includeData: true,
 			unflattenData: true,
 		});
@@ -212,7 +215,7 @@ export class ExecutionRecoveryService {
 
 		await this.executionRepository.markAsCrashed(executionId);
 
-		const execution = await this.executionRepository.findSingleExecution(executionId, {
+		const execution = await this.executionPersistence.findSingleExecution(executionId, {
 			includeData: true,
 			unflattenData: true,
 		});

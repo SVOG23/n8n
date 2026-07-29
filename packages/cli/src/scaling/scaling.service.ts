@@ -5,13 +5,16 @@ import { ExecutionRepository } from '@n8n/db';
 import { OnLeaderStepdown, OnLeaderTakeover, OnShutdown } from '@n8n/decorators';
 import { Container, Service } from '@n8n/di';
 import { ErrorReporter, InstanceSettings } from 'n8n-core';
-import { BINARY_ENCODING, sleep, jsonStringify, ensureError, UnexpectedError } from 'n8n-workflow';
+import { ensureError } from '@n8n/utils/errors/ensure-error';
+import { sleep } from '@n8n/utils/sleep';
+import { BINARY_ENCODING, jsonStringify, UnexpectedError } from 'n8n-workflow';
 import type { IExecuteResponsePromiseData, IRun } from 'n8n-workflow';
 import assert, { strict } from 'node:assert';
 
 import { ActiveExecutions } from '@/active-executions';
 import { HIGHEST_SHUTDOWN_PRIORITY } from '@/constants';
 import { EventService } from '@/events/event.service';
+import { ExecutionPersistence } from '@/executions/execution-persistence';
 import { assertNever } from '@/utils';
 
 import { JOB_TYPE_NAME, QUEUE_NAME } from './constants';
@@ -42,6 +45,7 @@ export class ScalingService {
 		private readonly jobProcessor: JobProcessor,
 		private readonly globalConfig: GlobalConfig,
 		private readonly executionRepository: ExecutionRepository,
+		private readonly executionPersistence: ExecutionPersistence,
 		private readonly instanceSettings: InstanceSettings,
 		private readonly eventService: EventService,
 	) {
@@ -52,7 +56,7 @@ export class ScalingService {
 
 	async setupQueue() {
 		const { default: BullQueue } = await import('bull');
-		const { RedisClientService } = await import('@/services/redis-client.service');
+		const { RedisClientService } = await import('@/services/redis-client.service.js');
 
 		if (this.queue) return;
 
@@ -76,7 +80,7 @@ export class ScalingService {
 		const { McpServer, QueuedExecutionStrategy, RedisSessionStore } = await import(
 			'@n8n/n8n-nodes-langchain/mcp/core'
 		);
-		const { Publisher } = await import('@/scaling/pubsub/publisher.service');
+		const { Publisher } = await import('@/scaling/pubsub/publisher.service.js');
 
 		const publisher = Container.get(Publisher);
 
@@ -379,6 +383,10 @@ export class ScalingService {
 							metadata: msg.metadata,
 							startedAt: new Date(msg.startedAt),
 							stoppedAt: new Date(msg.stoppedAt),
+							// Dropping `waitTill` here makes main mistake a waiting execution
+							// for a finished one and delete it when the workflow does not
+							// save successful executions
+							waitTill: msg.waitTill ? new Date(msg.waitTill) : null,
 						});
 					}
 
@@ -447,7 +455,7 @@ export class ScalingService {
 		try {
 			if (mcpType === 'service') {
 				// For MCP Service, fetch execution data from DB
-				const executionData = await this.executionRepository.findSingleExecution(executionId, {
+				const executionData = await this.executionPersistence.findSingleExecution(executionId, {
 					includeData: true,
 					unflattenData: true,
 				});
@@ -468,7 +476,7 @@ export class ScalingService {
 					storedAt: executionData.storedAt,
 				};
 
-				const { McpService } = await import('@/modules/mcp/mcp.service');
+				const { McpService } = await import('@/modules/mcp/mcp.service.js');
 				const mcpService = Container.get(McpService);
 				mcpService.handleWorkerResponse(executionId, runData);
 			} else {

@@ -9,8 +9,10 @@ export type MessageContent =
 	| ContentToolCall
 	| ContentInvalidToolCall
 	| ContentReasoning
+	| ContentReasoningFile
 	| ContentFile
 	| ContentCitation
+	| ContentCustom
 	| ContentProvider;
 
 export interface ContentMetadata {
@@ -83,6 +85,17 @@ export type ContentFile = ContentMetadata & {
 	data: Uint8Array | ArrayBuffer | Buffer | string;
 };
 
+export type ContentReasoningFile = ContentMetadata & {
+	type: 'reasoning-file';
+	data: ContentFile['data'];
+	mediaType: string;
+};
+
+export type ContentCustom = ContentMetadata & {
+	type: 'custom';
+	kind: `${string}.${string}`;
+};
+
 export type ContentToolCall = ContentMetadata & {
 	type: 'tool-call';
 
@@ -105,7 +118,7 @@ export type ContentToolCall = ContentMetadata & {
 	providerExecuted?: boolean;
 } & (
 		| { state: 'pending' }
-		| { state: 'resolved'; output: JSONValue }
+		| { state: 'resolved'; output: JSONValue; canceled?: boolean }
 		| { state: 'rejected'; error: string }
 	);
 

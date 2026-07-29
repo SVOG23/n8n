@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useInstallNode } from '@/features/settings/communityNodes/composables/useInstallNode';
-import { useTelemetry } from '@/app/composables/useTelemetry';
+import { useTelemetry } from '@n8n/composables/useTelemetry';
 import { CUSTOM_NODES_DOCS_URL } from '@/app/constants';
 import { COMMUNITY_PACKAGE_INSTALL_MODAL_KEY } from '@/features/settings/communityNodes/communityNodes.constants';
 import type { INodeUi } from '@/Interface';
@@ -91,7 +91,7 @@ async function onInstallClick() {
 // close the modal when the node gets installed
 watch(isNodeDefined, () => {
 	if (isNodeDefined.value) {
-		ndvStore.unsetActiveNodeName();
+		ndvStore.value.unsetActiveNodeName();
 	}
 });
 </script>
