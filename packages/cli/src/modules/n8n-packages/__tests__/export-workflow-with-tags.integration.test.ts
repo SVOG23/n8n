@@ -245,6 +245,7 @@ describe('workflow package export — with tags', () => {
 			workflowIdPolicy: 'new',
 			projectConflictPolicy: 'overwrite',
 			folderConflictPolicy: 'merge',
+			overwriteDeletionPolicy: 'archive',
 			dataTableMatchingMode: 'by-id',
 			dataTableMissingMode: 'create',
 			dataTableSchemaConflictPolicy: 'keep-existing',

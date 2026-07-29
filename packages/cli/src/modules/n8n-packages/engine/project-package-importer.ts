@@ -13,7 +13,7 @@ import { collectPlannedWorkflowBindings } from '../entities/workflow/workflow-im
 import { WorkflowPublisher } from '../entities/workflow/workflow-publisher';
 import type { PackageReader } from '../io/package-reader';
 import type {
-	ArchivedWorkflowSummary,
+	RemovedWorkflowSummary,
 	BlockingIssue,
 	ImportBindingMap,
 	ImportedFolderSummary,
@@ -137,7 +137,7 @@ export class ProjectPackageImporter {
 		});
 
 		const workflows: ImportedWorkflowSummary[] = [];
-		const archivedWorkflows: ArchivedWorkflowSummary[] = [];
+		const removedWorkflows: RemovedWorkflowSummary[] = [];
 		const folders: ImportedFolderSummary[] = [];
 		const scopedBindings: PackageImportBindings[] = [];
 		const matched: string[] = [];
@@ -152,7 +152,7 @@ export class ProjectPackageImporter {
 			workflows.push(
 				...toImportedWorkflowSummaries(content.workflowOutcomes, project.id, published),
 			);
-			archivedWorkflows.push(...content.archivedWorkflows);
+			removedWorkflows.push(...content.removedWorkflows);
 			folders.push(...content.folderSummaries);
 			scopedBindings.push(content.bindings);
 			matched.push(...content.credentialResult.matched);
@@ -175,7 +175,7 @@ export class ProjectPackageImporter {
 		return buildImportResult({
 			package: toPackageSummary(manifest),
 			workflows,
-			archivedWorkflows,
+			removedWorkflows,
 			folders,
 			projects: projectSummaries,
 			bindings: mergeBindings(...scopedBindings),
