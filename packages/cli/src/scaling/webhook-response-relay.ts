@@ -125,7 +125,12 @@ export class WebhookResponseRelay {
 
 		const offloadable = asOffloadablePayload(body);
 
-		if (!offloadable || !this.exceedsInline(response, offloadable)) {
+		if (!offloadable) {
+			this.assertFitsInline(body);
+			return response;
+		}
+
+		if (!this.exceedsInline(response, offloadable)) {
 			return encodeBufferBody(response);
 		}
 
@@ -208,7 +213,7 @@ export class WebhookResponseRelay {
 	 * @throws UserError When the payload is over the limit.
 	 */
 	assertFitsInline(payload: unknown): void {
-		if (asOffloadablePayload(payload)?.exceeds(this.maxInlineBytes)) {
+		if (exceedsInlineSize(payload, this.maxInlineBytes)) {
 			throw new UserError(this.tooLargeMessage(), { description: NOT_OFFLOADABLE_GUIDANCE });
 		}
 	}
@@ -361,6 +366,21 @@ function encodeBufferBody(response: IN8nHttpFullResponse): IN8nHttpFullResponse 
 	}
 
 	return response;
+}
+
+/**
+ * Whether `payload` would serialize to more than `maxBytes` inside a queue
+ * message. Everything is measured, offloadable or not — a binary-data-shaped
+ * object included. Only a stream is exempt: it cannot be measured without
+ * being consumed.
+ */
+function exceedsInlineSize(payload: unknown, maxBytes: number): boolean {
+	const offloadable = asOffloadablePayload(payload);
+	if (offloadable) {
+		return offloadable.exceeds(maxBytes);
+	}
+
+	return !(payload instanceof Readable) && jsonSizeExceeds(payload, maxBytes);
 }
 
 function asOffloadablePayload(payload: unknown): OffloadablePayload | undefined {

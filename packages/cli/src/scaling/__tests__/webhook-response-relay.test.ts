@@ -335,6 +335,22 @@ describe('WebhookResponseRelay', () => {
 			).rejects.toThrow(UserError);
 		});
 
+		it('rejects an oversized body shaped like a binary-data reference', async () => {
+			const { relay, binaryDataService } = buildRelay();
+			const body = { binaryData: { id: 'database:abc' }, blob: 'x'.repeat(3 * ONE_MIB) };
+
+			await expect(relay.prepare(fullResponse(body), ctx)).rejects.toThrow(UserError);
+			expect(binaryDataService.store).not.toHaveBeenCalled();
+		});
+
+		it('rejects an oversized payload shaped like a binary-data reference that is not a full response', async () => {
+			const { relay, binaryDataService } = buildRelay();
+			const payload = { binaryData: { id: 'database:abc' }, toolResult: 'x'.repeat(3 * ONE_MIB) };
+
+			await expect(relay.prepare(payload, ctx)).rejects.toThrow(UserError);
+			expect(binaryDataService.store).not.toHaveBeenCalled();
+		});
+
 		it('names the limit and how to raise it', async () => {
 			const { relay } = buildRelay();
 			const response = fullResponse(null, { 'x-data': 'x'.repeat(3 * ONE_MIB) });
