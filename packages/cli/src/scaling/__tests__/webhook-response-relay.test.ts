@@ -187,7 +187,10 @@ describe('WebhookResponseRelay', () => {
 			await relay.prepare(fullResponse(body), ctx);
 
 			const [, stored] = binaryDataService.store.mock.calls[0];
-			expect(stored).toEqual(Buffer.from(JSON.stringify(body)));
+			// `equals` over `toEqual`: deep equality walks a Buffer byte by byte.
+			expect(Buffer.isBuffer(stored) && stored.equals(Buffer.from(JSON.stringify(body)))).toBe(
+				true,
+			);
 		});
 
 		it.each(['database', 's3', 'azure'] as const)(
