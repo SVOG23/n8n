@@ -105,7 +105,6 @@ export class WebhookResponseRelay {
 	 * - and any other body passes through.
 	 *
 	 * @param response Worker response. Mutated and returned.
-	 * @param context Worker response. Mutated and returned.
 	 * @returns The same `response`.
 	 *
 	 * @throws UserError When:
@@ -202,6 +201,18 @@ export class WebhookResponseRelay {
 		}
 	}
 
+	/**
+	 * Asserts that a payload with no offload path is small enough to travel
+	 * inline inside a queue message.
+	 *
+	 * @throws UserError When the payload is over the limit.
+	 */
+	assertFitsInline(payload: unknown): void {
+		if (asOffloadablePayload(payload)?.exceeds(this.maxInlineBytes)) {
+			throw new UserError(this.tooLargeMessage(), { description: NOT_OFFLOADABLE_GUIDANCE });
+		}
+	}
+
 	private get maxInlineBytes(): number {
 		return this.endpointsConfig.webhookResponseRelaySizeMax * MIB;
 	}
@@ -209,18 +220,6 @@ export class WebhookResponseRelay {
 	private tooLargeMessage(): string {
 		const { webhookResponseRelaySizeMax } = this.endpointsConfig;
 		return `The response is too large to be sent back from the worker (over ${webhookResponseRelaySizeMax} MiB)`;
-	}
-
-	/**
-	 * Asserts that a payload with no offload path is small enough to travel
-	 * inline inside a queue message.
-	 *
-	 * @throws UserError When the payload is over the limit.
-	 */
-	private assertFitsInline(payload: unknown): void {
-		if (asOffloadablePayload(payload)?.exceeds(this.maxInlineBytes)) {
-			throw new UserError(this.tooLargeMessage(), { description: NOT_OFFLOADABLE_GUIDANCE });
-		}
 	}
 
 	/**

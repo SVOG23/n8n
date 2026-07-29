@@ -25,6 +25,7 @@ import {
 	type WorkflowExecuteMode,
 	type ExecutionError,
 	WorkflowExpression,
+	UserError,
 } from 'n8n-workflow';
 import type { Mock, MockedClass, MockInstance } from 'vitest';
 import { mock } from 'vitest-mock-extended';
@@ -960,6 +961,90 @@ describe('JobProcessor', () => {
 			});
 			// Response should contain the tool's output data
 			expect(lastResponse.response).toEqual([{ result: 'tool response data' }]);
+		});
+
+		it('should relay a tool result too large for the queue as an error', async () => {
+			const executionRepository = mock<ExecutionRepository>();
+			const executionPersistence = mock<ExecutionPersistence>();
+			const toolNode = {
+				name: 'HTTP Request',
+				type: 'n8n-nodes-base.httpRequestTool',
+				typeVersion: 4.4,
+				parameters: {},
+				position: [0, 0] as [number, number],
+			};
+			executionPersistence.findSingleExecution.mockResolvedValueOnce(
+				mock<IExecutionResponse>({
+					mode: 'trigger',
+					workflowData: { id: 'wf-1', nodes: [toolNode], staticData: {} },
+					data: mock<IRunExecutionData>({ executionData: undefined }),
+				}),
+			);
+			executionPersistence.findSingleExecution.mockResolvedValueOnce(
+				mock<IExecutionResponse>({
+					status: 'success',
+					workflowData: { id: 'wf-1', nodes: [toolNode], staticData: {} },
+					data: mock<IRunExecutionData>({ resultData: { runData: {} } }),
+				}),
+			);
+
+			const nodeTypes = mock<NodeTypes>();
+			nodeTypes.getByNameAndVersion.mockReturnValue({
+				description: {
+					name: 'httpRequestTool',
+					outputs: [NodeConnectionTypes.AiTool],
+					properties: [],
+				},
+				execute: vi.fn().mockResolvedValue([[{ json: { blob: 'x'.repeat(64) } }]]),
+			} as never);
+
+			const relay = mock<WebhookResponseRelay>();
+			relay.assertFitsInline.mockImplementation(() => {
+				throw new UserError(
+					'The response is too large to be sent back from the worker (over 1 MiB)',
+				);
+			});
+
+			const jobProcessor = new JobProcessor(
+				logger,
+				executionRepository,
+				executionPersistence,
+				mock(),
+				nodeTypes,
+				{ hostId: 'worker-host-123' } as unknown as InstanceSettings,
+				createManualExecutionServiceMock(),
+				executionsConfig,
+				mock(),
+				relay,
+			);
+
+			const job = mock<Job>();
+			job.data = {
+				workflowId: 'wf-1',
+				executionId: 'exec-mcp-tool-oversized',
+				loadStaticData: false,
+				isMcpExecution: true,
+				mcpType: 'trigger',
+				mcpSessionId: 'session-tool',
+				mcpMessageId: 'msg-tool',
+				mcpToolCall: {
+					toolName: 'HTTP Request',
+					arguments: { url: 'https://example.com' },
+					sourceNodeName: 'HTTP Request',
+				},
+			};
+
+			await jobProcessor.processJob(job);
+
+			expect(relay.assertFitsInline).toHaveBeenCalledWith([{ blob: 'x'.repeat(64) }]);
+
+			const mcpResponseCalls = (job.progress as Mock).mock.calls.filter(
+				(call: unknown[]) => (call[0] as { kind: string }).kind === 'mcp-response',
+			);
+			const lastResponse = mcpResponseCalls[mcpResponseCalls.length - 1][0] as {
+				response: { error?: { message?: string } };
+			};
+			expect(lastResponse.response.error?.message).toContain('too large');
 		});
 
 		describe('expression isolate for tool calls', () => {
