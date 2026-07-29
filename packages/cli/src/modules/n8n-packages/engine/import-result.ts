@@ -6,6 +6,7 @@ import type {
 import type { PackagePublishingResults } from '../entities/workflow/workflow-publisher';
 import { serializeBindings } from '../n8n-packages.types';
 import type {
+	ArchivedWorkflowSummary,
 	ImportBindingMap,
 	ImportCredentialSummary,
 	ImportedFolderSummary,
@@ -58,6 +59,7 @@ export function toImportedWorkflowSummaries(
 export function buildImportResult(input: {
 	package: ImportPackageSummary;
 	workflows: ImportedWorkflowSummary[];
+	archivedWorkflows: ArchivedWorkflowSummary[];
 	folders: ImportedFolderSummary[];
 	projects: ImportedProjectSummary[];
 	bindings: PackageImportBindings;
@@ -67,6 +69,7 @@ export function buildImportResult(input: {
 	return {
 		package: input.package,
 		workflows: input.workflows,
+		archivedWorkflows: input.archivedWorkflows,
 		folders: input.folders,
 		projects: input.projects,
 		bindings: serializeBindings(input.bindings),

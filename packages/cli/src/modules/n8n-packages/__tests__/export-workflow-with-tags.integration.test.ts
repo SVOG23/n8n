@@ -243,6 +243,7 @@ describe('workflow package export — with tags', () => {
 			workflowConflictPolicy: 'fail',
 			workflowPublishingPolicy: 'preserve-published-state',
 			workflowIdPolicy: 'new',
+			projectConflictPolicy: 'overwrite',
 			folderConflictPolicy: 'merge',
 			dataTableMatchingMode: 'by-id',
 			dataTableMissingMode: 'create',
