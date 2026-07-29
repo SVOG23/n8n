@@ -193,4 +193,12 @@ describe('executeWorkflow → webhook response', () => {
 			_byteLength: byteLength,
 		});
 	});
+
+	// Reachable in regular mode only: a relayed body was serialized once already.
+	it('describes a cyclic body it cannot serialize', async () => {
+		const body: Record<string, unknown> = { name: 'cycle' };
+		body.self = body;
+
+		expect(await responseBodyOf(body)).toEqual({ _truncated: true });
+	});
 });

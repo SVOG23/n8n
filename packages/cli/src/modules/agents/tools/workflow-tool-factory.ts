@@ -512,7 +512,9 @@ function truncateNodeOutput(items: unknown[]): unknown {
  *
  * @remarks A Buffer body is described without being serialized at all:
  * `JSON.stringify` turns it into one array element per byte, which costs about
- * twelve times the body and throws above V8's max string length.
+ * twelve times the body and throws above V8's max string length. A body
+ * `JSON.stringify` rejects (a cycle, a BigInt) is described bare, with neither
+ * length nor preview.
  */
 function truncateWebhookResponse(response: IExecuteResponsePromiseData): unknown {
 	if (!isRecord(response)) {
@@ -525,7 +527,12 @@ function truncateWebhookResponse(response: IExecuteResponsePromiseData): unknown
 		return { ...rest, body: { _truncated: true, _byteLength: body.length } };
 	}
 
-	const serialized = JSON.stringify(body) ?? '';
+	let serialized: string;
+	try {
+		serialized = JSON.stringify(body) ?? '';
+	} catch {
+		return { ...rest, body: { _truncated: true } };
+	}
 	if (serialized.length <= MAX_RESULT_CHARS) {
 		return response;
 	}
