@@ -44,8 +44,15 @@ Reference: `v1/controllers/tags.public.controller.ts` (`GET /tags`).
      @ApiSummary('Retrieve all tags')
      @ApiDescription('Retrieve all tags from your instance.')
      @ApiTags(['Tags'])
-     @ApiResponse(TagListPublicDto)
+     @ApiResponse(200, TagListPublicDto)
      async getTags(_req, _res, @Query q: ListTagsQueryDto) { /* call service */ }
+
+     @Post('/')
+     @ApiKeyScope('tag:create')
+     @ApiSummary('Create a tag')
+     @ApiTags(['Tags'])
+     @ApiResponse(201, TagPublicDto)
+     async createTag(_req, _res, @Body payload: CreateOrUpdateTagRequestDto) { /* … */ }
    }
    ```
    - Reuse `@Get/@Post/@Body/@Query/@Param/@GlobalScope/@ProjectScope` as-is.
@@ -60,11 +67,22 @@ Reference: `v1/controllers/tags.public.controller.ts` (`GET /tags`).
    - `@ApiSummary('...')` (optional) — operation's `summary`.
    - `@ApiDescription('...')` (optional) - operation's `description`.
    - `@ApiTags([...])` (optional) — operation's `tags`.
-   - `@ApiResponse(Dto)` (optional) — registry `.parse()`s the return value
-     (strips undeclared fields) and its schema feeds the generated OpenAPI
-     response. Omit it for a route with no response body (e.g. one that calls
-     `res.status(204).send()` itself) — the generated `200` just has no
-     `content` key, and the registry leaves an already-sent response alone.
+   - `@ApiResponse(status, Dto)` (**required on every route**) — declares what
+     the route returns on success, status first to match `@ApiErrorResponse`.
+     The registry `.parse()`s the return value through the DTO (stripping
+     undeclared fields) and its schema feeds the generated OpenAPI response.
+     - **The status is mandatory** A route with a body
+       passes both, `@ApiResponse(200, TagPublicDto)`; a route without one
+       passes the status alone, `@ApiResponse(204)`. Valid statuses are `200`,
+       `201`, `202` and `204`; `204` is only accepted without a DTO, since a
+       no-content response can't carry a body.
+     - Omitting `@ApiResponse` throws at route registration *and* at doc
+       generation — the route won't boot and the build won't pass. Inferring a
+       `200` is how the docs and the runtime drifted apart before.
+     - The registry *sends* the status declared here, so don't call
+       `res.status(...)` in the handler to set it. A handler is still free to
+       respond itself (the registry leaves an already-sent response alone), but
+       then the generated spec won't know about it.
    - `@ApiErrorResponse(status)` (optional, stackable) — declares an additional
      non-2xx status the route can return (e.g. a 404 from a lookup that isn't
      visible in decorator metadata), `$ref`ing the matching shared response
