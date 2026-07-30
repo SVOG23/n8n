@@ -1,5 +1,5 @@
 import type { Logger } from '@n8n/backend-common';
-import type { EndpointsConfig, ExecutionsConfig } from '@n8n/config';
+import type { ExecutionsConfig } from '@n8n/config';
 import type { IExecutionResponse, ExecutionRepository, Project } from '@n8n/db';
 import { WorkflowPublishHistoryRepository } from '@n8n/db';
 import type {
@@ -25,13 +25,13 @@ import {
 	type WorkflowExecuteMode,
 	type ExecutionError,
 	WorkflowExpression,
-	UserError,
 } from 'n8n-workflow';
 import type { Mock, MockedClass, MockInstance } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 
 import { CredentialsHelper } from '@/credentials-helper';
 import { VariablesService } from '@/environments.ee/variables/variables.service.ee';
+import { WebhookResponseTooLargeError } from '@/errors/webhook-response-too-large.error';
 import { ExternalHooks } from '@/external-hooks';
 import type { ExecutionPersistence } from '@/executions/execution-persistence';
 import type { ManualExecutionService } from '@/manual-execution.service';
@@ -1000,8 +1000,9 @@ describe('JobProcessor', () => {
 
 			const relay = mock<WebhookResponseRelay>();
 			relay.assertFitsInline.mockImplementation(() => {
-				throw new UserError(
+				throw new WebhookResponseTooLargeError(
 					'The response is too large to be sent back from the worker (over 1 MiB)',
+					{ description: 'Raise N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX.' },
 				);
 			});
 
@@ -2088,7 +2089,7 @@ describe('JobProcessor', () => {
 	});
 
 	describe('webhook response relay', () => {
-		const buildRelay = (webhookResponseRelaySizeMax: number, mode: BinaryDataConfig['mode']) => {
+		const buildRelay = (webhookResponseRelaySizeMaxMiB: number, mode: BinaryDataConfig['mode']) => {
 			const binaryDataService = mock<BinaryDataService>();
 			binaryDataService.store.mockImplementation(async (_location, _body, binaryData) => ({
 				...binaryData,
@@ -2099,7 +2100,7 @@ describe('JobProcessor', () => {
 				logger,
 				binaryDataService,
 				mock<BinaryDataConfig>({ mode }),
-				mock<EndpointsConfig>({ webhookResponseRelaySizeMax }),
+				mock<ExecutionsConfig>({ webhookResponseRelaySizeMaxMiB }),
 			);
 
 			return { relay, binaryDataService };
@@ -2107,11 +2108,11 @@ describe('JobProcessor', () => {
 
 		/** Runs a job and returns the hooks it registered, so `sendResponse` can be invoked. */
 		const processJobAndCaptureHooks = async (
-			webhookResponseRelaySizeMax: number,
+			webhookResponseRelaySizeMaxMiB: number,
 			jobData: Partial<Job['data']> = {},
 			mode: BinaryDataConfig['mode'] = 'filesystem',
 		) => {
-			const { relay, binaryDataService } = buildRelay(webhookResponseRelaySizeMax, mode);
+			const { relay, binaryDataService } = buildRelay(webhookResponseRelaySizeMaxMiB, mode);
 			const executionPersistence = mock<ExecutionPersistence>();
 			executionPersistence.findSingleExecution.mockResolvedValue(
 				mock<IExecutionResponse>({
@@ -2196,7 +2197,7 @@ describe('JobProcessor', () => {
 				hooks.runHook('sendResponse', [
 					{ body: { blob: 'x'.repeat(2 * 1024 * 1024) }, headers: {}, statusCode: 200 },
 				]),
-			).rejects.toThrow(/too large/);
+			).rejects.toThrow(WebhookResponseTooLargeError);
 
 			expect((job.progress as Mock).mock.calls).toHaveLength(relayedBefore);
 		});
@@ -2252,7 +2253,7 @@ describe('JobProcessor', () => {
 
 			await expect(
 				hooks.runHook('sendResponse', [{ toolResult: 'x'.repeat(2 * 1024 * 1024) }]),
-			).rejects.toThrow(/too large/);
+			).rejects.toThrow(WebhookResponseTooLargeError);
 
 			expect((job.progress as Mock).mock.calls).toHaveLength(relayedBefore);
 			expect(binaryDataService.store).not.toHaveBeenCalled();

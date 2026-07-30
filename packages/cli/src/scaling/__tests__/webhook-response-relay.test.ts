@@ -1,11 +1,13 @@
 import type { Logger } from '@n8n/backend-common';
-import type { EndpointsConfig } from '@n8n/config';
+import type { ExecutionsConfig } from '@n8n/config';
 import { FileLocation, FileTooLargeError } from 'n8n-core';
 import type { BinaryDataConfig, BinaryDataService } from 'n8n-core';
-import { OperationalError, UserError } from 'n8n-workflow';
+import { OperationalError } from 'n8n-workflow';
 import type { IBinaryData, IExecuteResponsePromiseData } from 'n8n-workflow';
 import { Readable } from 'node:stream';
 import { mock } from 'vitest-mock-extended';
+
+import { WebhookResponseTooLargeError } from '@/errors/webhook-response-too-large.error';
 
 import {
 	decodeRelayedWebhookResponse,
@@ -48,7 +50,7 @@ const buildRelay = (mode: BinaryDataConfig['mode'] = 'database'): Harness => {
 		logger,
 		binaryDataService,
 		mock<BinaryDataConfig>({ mode }),
-		mock<EndpointsConfig>({ webhookResponseRelaySizeMax: SIZE_MAX_IN_MIB }),
+		mock<ExecutionsConfig>({ webhookResponseRelaySizeMaxMiB: SIZE_MAX_IN_MIB }),
 	);
 
 	return { relay, binaryDataService, logger };
@@ -264,13 +266,17 @@ describe('WebhookResponseRelay', () => {
 
 			const error = await relay
 				.prepare(fullResponse('x'.repeat(3 * ONE_MIB)), ctx)
-				.catch((e: UserError) => e);
+				.catch((e: WebhookResponseTooLargeError) => e);
 
-			expect(error).toBeInstanceOf(UserError);
-			expect((error as UserError).message).toContain('3 MiB');
-			expect((error as UserError).description).toContain('N8N_BINARY_DATA_DATABASE_MAX_FILE_SIZE');
-			expect((error as UserError).description).toContain('N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX');
-			expect((error as UserError).cause).toBeInstanceOf(FileTooLargeError);
+			expect(error).toBeInstanceOf(WebhookResponseTooLargeError);
+			expect((error as WebhookResponseTooLargeError).message).toContain('3 MiB');
+			expect((error as WebhookResponseTooLargeError).description).toContain(
+				'N8N_BINARY_DATA_DATABASE_MAX_FILE_SIZE',
+			);
+			expect((error as WebhookResponseTooLargeError).description).toContain(
+				'N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX',
+			);
+			expect((error as WebhookResponseTooLargeError).cause).toBeInstanceOf(FileTooLargeError);
 		});
 	});
 
@@ -281,7 +287,7 @@ describe('WebhookResponseRelay', () => {
 				const { relay, binaryDataService } = buildRelay(mode);
 
 				await expect(relay.prepare(fullResponse('x'.repeat(3 * ONE_MIB)), ctx)).rejects.toThrow(
-					UserError,
+					WebhookResponseTooLargeError,
 				);
 				expect(binaryDataService.store).not.toHaveBeenCalled();
 			},
@@ -296,7 +302,9 @@ describe('WebhookResponseRelay', () => {
 		])('rejects %s', async (_label, body) => {
 			const { relay } = buildRelay('filesystem');
 
-			await expect(relay.prepare(fullResponse(body), ctx)).rejects.toThrow(UserError);
+			await expect(relay.prepare(fullResponse(body), ctx)).rejects.toThrow(
+				WebhookResponseTooLargeError,
+			);
 		});
 
 		it('names the limit and both ways out', async () => {
@@ -304,11 +312,15 @@ describe('WebhookResponseRelay', () => {
 
 			const error = await relay
 				.prepare(fullResponse('x'.repeat(3 * ONE_MIB)), ctx)
-				.catch((e: UserError) => e);
+				.catch((e: WebhookResponseTooLargeError) => e);
 
-			expect((error as UserError).message).toContain('over 2 MiB');
-			expect((error as UserError).description).toContain('N8N_DEFAULT_BINARY_DATA_MODE');
-			expect((error as UserError).description).toContain('N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX');
+			expect((error as WebhookResponseTooLargeError).message).toContain('over 2 MiB');
+			expect((error as WebhookResponseTooLargeError).description).toContain(
+				'N8N_DEFAULT_BINARY_DATA_MODE',
+			);
+			expect((error as WebhookResponseTooLargeError).description).toContain(
+				'N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX',
+			);
 		});
 	});
 
@@ -317,7 +329,7 @@ describe('WebhookResponseRelay', () => {
 			const { relay, binaryDataService } = buildRelay();
 			const response = fullResponse(null, { 'x-data': 'x'.repeat(3 * ONE_MIB) });
 
-			await expect(relay.prepare(response, ctx)).rejects.toThrow(UserError);
+			await expect(relay.prepare(response, ctx)).rejects.toThrow(WebhookResponseTooLargeError);
 			expect(binaryDataService.store).not.toHaveBeenCalled();
 		});
 
@@ -325,7 +337,7 @@ describe('WebhookResponseRelay', () => {
 			const { relay, binaryDataService } = buildRelay();
 
 			await expect(relay.prepare({ toolResult: 'x'.repeat(3 * ONE_MIB) }, ctx)).rejects.toThrow(
-				UserError,
+				WebhookResponseTooLargeError,
 			);
 			expect(binaryDataService.store).not.toHaveBeenCalled();
 		});
@@ -335,14 +347,16 @@ describe('WebhookResponseRelay', () => {
 
 			await expect(
 				relay.prepare({ body: 'small', extra: 'x'.repeat(3 * ONE_MIB) }, ctx),
-			).rejects.toThrow(UserError);
+			).rejects.toThrow(WebhookResponseTooLargeError);
 		});
 
 		it('rejects an oversized body shaped like a binary-data reference', async () => {
 			const { relay, binaryDataService } = buildRelay();
 			const body = { binaryData: { id: 'database:abc' }, blob: 'x'.repeat(3 * ONE_MIB) };
 
-			await expect(relay.prepare(fullResponse(body), ctx)).rejects.toThrow(UserError);
+			await expect(relay.prepare(fullResponse(body), ctx)).rejects.toThrow(
+				WebhookResponseTooLargeError,
+			);
 			expect(binaryDataService.store).not.toHaveBeenCalled();
 		});
 
@@ -352,7 +366,7 @@ describe('WebhookResponseRelay', () => {
 				'x-data': 'x'.repeat(3 * ONE_MIB),
 			});
 
-			await expect(relay.prepare(response, ctx)).rejects.toThrow(UserError);
+			await expect(relay.prepare(response, ctx)).rejects.toThrow(WebhookResponseTooLargeError);
 		});
 
 		it('rejects a non-offloadable body and headers that only fit the limit apart', async () => {
@@ -360,7 +374,7 @@ describe('WebhookResponseRelay', () => {
 			const body = { binaryData: { id: 'database:abc' }, blob: 'x'.repeat(1.5 * ONE_MIB) };
 			const response = fullResponse(body, { 'x-data': 'y'.repeat(1.5 * ONE_MIB) });
 
-			await expect(relay.prepare(response, ctx)).rejects.toThrow(UserError);
+			await expect(relay.prepare(response, ctx)).rejects.toThrow(WebhookResponseTooLargeError);
 			expect(binaryDataService.store).not.toHaveBeenCalled();
 		});
 
@@ -368,7 +382,7 @@ describe('WebhookResponseRelay', () => {
 			const { relay, binaryDataService } = buildRelay();
 			const payload = { binaryData: { id: 'database:abc' }, toolResult: 'x'.repeat(3 * ONE_MIB) };
 
-			await expect(relay.prepare(payload, ctx)).rejects.toThrow(UserError);
+			await expect(relay.prepare(payload, ctx)).rejects.toThrow(WebhookResponseTooLargeError);
 			expect(binaryDataService.store).not.toHaveBeenCalled();
 		});
 
@@ -376,10 +390,14 @@ describe('WebhookResponseRelay', () => {
 			const { relay } = buildRelay();
 			const response = fullResponse(null, { 'x-data': 'x'.repeat(3 * ONE_MIB) });
 
-			const error = await relay.prepare(response, ctx).catch((e: UserError) => e);
+			const error = await relay
+				.prepare(response, ctx)
+				.catch((e: WebhookResponseTooLargeError) => e);
 
-			expect((error as UserError).message).toContain('over 2 MiB');
-			expect((error as UserError).description).toContain('N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX');
+			expect((error as WebhookResponseTooLargeError).message).toContain('over 2 MiB');
+			expect((error as WebhookResponseTooLargeError).description).toContain(
+				'N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX',
+			);
 		});
 	});
 

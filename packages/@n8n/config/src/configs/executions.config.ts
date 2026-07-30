@@ -2,6 +2,7 @@ import { Time } from '@n8n/constants';
 import z from 'zod';
 
 import { Config, Env, Nested } from '../decorators';
+import { positiveIntSchema } from '../schemas';
 
 @Config
 class PruningIntervalsConfig {
@@ -163,4 +164,20 @@ export class ExecutionsConfig {
 	 */
 	@Env('EXECUTIONS_DATA_MAX_DISPLAY_SIZE')
 	maxDisplaySize: number = 100 * 1024 * 1024; // 100 MB
+
+	/**
+	 * Maximum size in MiB of a response a worker relays back to main inline,
+	 * inside a queue message, in scaling mode.
+	 *
+	 * A larger body is stored in the binary-data store for main to read from,
+	 * which requires a store the two share (`database`, `s3` or `azure`).
+	 * Where the store is local to one host (`default`, `filesystem`), a larger body
+	 * fails the node instead. Only a body can be stored, so a response whose
+	 * headers alone exceed this fails either way.
+	 *
+	 * Relaying costs the queue a multiple of the size relayed, so size this
+	 * against the memory available to it.
+	 */
+	@Env('N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX', positiveIntSchema)
+	webhookResponseRelaySizeMaxMiB: number = 64;
 }

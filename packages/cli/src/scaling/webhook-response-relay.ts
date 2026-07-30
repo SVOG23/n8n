@@ -7,12 +7,12 @@
  */
 
 import { Logger } from '@n8n/backend-common';
-import { EndpointsConfig } from '@n8n/config';
+import { ExecutionsConfig } from '@n8n/config';
 import { Service } from '@n8n/di';
 import { jsonSizeExceeds } from '@n8n/utils/json/json-size-exceeds';
 import { BinaryDataConfig, BinaryDataService, FileLocation, FileTooLargeError } from 'n8n-core';
 import type { BinaryData } from 'n8n-core';
-import { BINARY_ENCODING, jsonParse, OperationalError, UserError } from 'n8n-workflow';
+import { BINARY_ENCODING, jsonParse, OperationalError } from 'n8n-workflow';
 import type {
 	IBinaryData,
 	IDataObject,
@@ -20,6 +20,8 @@ import type {
 	IN8nHttpFullResponse,
 } from 'n8n-workflow';
 import { Readable } from 'node:stream';
+
+import { WebhookResponseTooLargeError } from '@/errors/webhook-response-too-large.error';
 
 const MIB = 1024 * 1024;
 
@@ -93,7 +95,7 @@ export class WebhookResponseRelay {
 		private readonly logger: Logger,
 		private readonly binaryDataService: BinaryDataService,
 		private readonly binaryDataConfig: BinaryDataConfig,
-		private readonly endpointsConfig: EndpointsConfig,
+		private readonly executionsConfig: ExecutionsConfig,
 	) {
 		this.logger = this.logger.scoped('scaling');
 	}
@@ -107,7 +109,7 @@ export class WebhookResponseRelay {
 	 * @param response Worker response. Mutated and returned.
 	 * @returns The same `response`.
 	 *
-	 * @throws UserError When:
+	 * @throws WebhookResponseTooLargeError When:
 	 * - the response is over the limit and no store shared with main can hold its body,
 	 * - or when what is left once the body is offloaded is over the limit on its own,
 	 * - or when the response has no offload path and is over the limit as a whole.
@@ -139,7 +141,9 @@ export class WebhookResponseRelay {
 		}
 
 		if (!SHARED_STORE_MODES.includes(this.binaryDataConfig.mode)) {
-			throw new UserError(this.tooLargeMessage(), { description: NO_SHARED_STORE_GUIDANCE });
+			throw new WebhookResponseTooLargeError(this.tooLargeMessage(), {
+				description: NO_SHARED_STORE_GUIDANCE,
+			});
 		}
 
 		return await this.offload(response, offloadable, context);
@@ -214,21 +218,23 @@ export class WebhookResponseRelay {
 	 * Asserts that a payload with no offload path is small enough to travel
 	 * inline inside a queue message.
 	 *
-	 * @throws UserError When the payload is over the limit.
+	 * @throws WebhookResponseTooLargeError When the payload is over the limit.
 	 */
 	assertFitsInline(payload: unknown): void {
 		if (exceedsInlineSize(payload, this.maxInlineBytes)) {
-			throw new UserError(this.tooLargeMessage(), { description: NOT_OFFLOADABLE_GUIDANCE });
+			throw new WebhookResponseTooLargeError(this.tooLargeMessage(), {
+				description: NOT_OFFLOADABLE_GUIDANCE,
+			});
 		}
 	}
 
 	private get maxInlineBytes(): number {
-		return this.endpointsConfig.webhookResponseRelaySizeMax * MIB;
+		return this.executionsConfig.webhookResponseRelaySizeMaxMiB * MIB;
 	}
 
 	private tooLargeMessage(): string {
-		const { webhookResponseRelaySizeMax } = this.endpointsConfig;
-		return `The response is too large to be sent back from the worker (over ${webhookResponseRelaySizeMax} MiB)`;
+		const { webhookResponseRelaySizeMaxMiB } = this.executionsConfig;
+		return `The response is too large to be sent back from the worker (over ${webhookResponseRelaySizeMaxMiB} MiB)`;
 	}
 
 	/**
@@ -236,8 +242,9 @@ export class WebhookResponseRelay {
 	 *
 	 * @remarks Measured twice, because neither measure bounds the other: the body
 	 * alone, in the form it travels in, which counts a Buffer base64-encoded, and
-	 * the whole response as JSON, which adds the headers but counts a Buffer as one
-	 * byte each.
+	 * the whole response as JSON, which adds the headers. The second is an upper
+	 * bound, and a loose one over a Buffer body, which serializes as an array of
+	 * numbers rather than as base64, so a Buffer may be offloaded below the limit.
 	 */
 	private exceedsInline(response: IN8nHttpFullResponse, body: OffloadablePayload): boolean {
 		return body.exceeds(this.maxInlineBytes) || jsonSizeExceeds(response, this.maxInlineBytes);
@@ -284,7 +291,7 @@ export class WebhookResponseRelay {
 
 	/**
 	 * @returns The stored body's binary-data reference, its `id` set.
-	 * @throws UserError When the store refuses the body for its own size limit.
+	 * @throws WebhookResponseTooLargeError When the store refuses the body for its own size limit.
 	 * @throws OperationalError When the store reports no id.
 	 */
 	private async storeBody(
@@ -302,7 +309,7 @@ export class WebhookResponseRelay {
 			});
 		} catch (error) {
 			if (error instanceof FileTooLargeError) {
-				throw new UserError(this.tooLargeForStoreMessage(body.length), {
+				throw new WebhookResponseTooLargeError(this.tooLargeForStoreMessage(body.length), {
 					description: STORE_LIMIT_GUIDANCE,
 					cause: error,
 				});

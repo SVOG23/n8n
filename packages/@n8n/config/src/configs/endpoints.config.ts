@@ -139,22 +139,6 @@ export class EndpointsConfig {
 	@Env('N8N_FORMDATA_FILE_SIZE_MAX')
 	formDataFileSizeMax: number = 200;
 
-	/**
-	 * Maximum size in MiB of a response a worker relays back to main inline,
-	 * inside a queue message, in scaling mode.
-	 *
-	 * A larger body is stored in the binary-data store for main to read from,
-	 * which requires a store the two share (`database`, `s3` or `azure`).
-	 * Where the store is local to one host (`default`, `filesystem`), a larger body
-	 * fails the node instead. Only a body can be stored, so a response whose
-	 * headers alone exceed this fails either way.
-	 *
-	 * Relaying costs the queue a multiple of the size relayed, so size this
-	 * against the memory available to it.
-	 */
-	@Env('N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX')
-	webhookResponseRelaySizeMax: number = 64;
-
 	@Nested
 	metrics: PrometheusMetricsConfig;
 
