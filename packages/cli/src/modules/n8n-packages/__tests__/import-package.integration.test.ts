@@ -73,6 +73,7 @@ type ImportPackageParams = Omit<
 	| 'dataTableMissingMode'
 	| 'dataTableSchemaConflictPolicy'
 	| 'variableMissingMode'
+	| 'variableConflictPolicy'
 	| 'variableParentPolicy'
 	| 'tagMissingMode'
 	| 'tagConflictPolicy'
@@ -92,6 +93,7 @@ type ImportPackageParams = Omit<
 			| 'dataTableMissingMode'
 			| 'dataTableSchemaConflictPolicy'
 			| 'variableMissingMode'
+			| 'variableConflictPolicy'
 			| 'variableParentPolicy'
 			| 'tagMissingMode'
 			| 'tagConflictPolicy'
@@ -111,6 +113,7 @@ async function importPackage(params: ImportPackageParams) {
 		dataTableMissingMode: DataTableMissingMode.Create,
 		dataTableSchemaConflictPolicy: DataTableSchemaConflictPolicy.KeepExisting,
 		variableMissingMode: 'do-nothing',
+		variableConflictPolicy: 'keep-existing',
 		variableParentPolicy: 'project',
 		tagMissingMode: 'create',
 		tagConflictPolicy: 'skip',
@@ -1220,6 +1223,7 @@ describe('Package import event emission', () => {
 					missing: 0,
 					created: 0,
 					stubbed: 0,
+					updated: 0,
 					requirements: 0,
 				},
 				tags: {
@@ -1313,6 +1317,7 @@ describe('Package import event emission', () => {
 					missing: 0,
 					created: 0,
 					stubbed: 0,
+					updated: 0,
 					requirements: 0,
 				},
 				tags: {
@@ -1375,6 +1380,7 @@ describe('Package import event emission', () => {
 					missing: 0,
 					created: 0,
 					stubbed: 0,
+					updated: 0,
 					requirements: 0,
 				},
 				tags: {
@@ -1439,6 +1445,7 @@ describe('Package import event emission', () => {
 					missing: 0,
 					created: 0,
 					stubbed: 0,
+					updated: 0,
 					requirements: 0,
 				},
 				tags: {
