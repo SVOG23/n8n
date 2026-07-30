@@ -66,6 +66,7 @@ describe('ActiveWorkflowTriggers', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		pollFunctions.__runPoll.mockImplementation(async (poll) => await poll());
 		workflow.id = workflowId;
 		scheduledTaskManager.getGroupIds.mockReturnValue([]);
 		scheduledTaskManager.getTargetIds.mockReturnValue([]);
