@@ -15,22 +15,23 @@ import {
 export class TypeOrmStepStore implements StepStore {
 	constructor(private readonly repo: Repository<WorkflowStepExecution>) {}
 
-	async createStep(record: NewStepRecord): Promise<{ id: string }> {
-		const step = this.repo.create(record);
-		await this.repo.save(step);
-		return { id: step.id };
+	async createSteps(records: NewStepRecord[]): Promise<Array<{ id: string }>> {
+		const steps = records.map((record) => this.repo.create(record));
+		// NOTE: prefer insert to save for performance reasons.
+		await this.repo.insert(steps);
+		return steps.map(({ id }) => ({ id }));
 	}
 
 	async loadStep(id: string): Promise<StepRecord> {
-		// `findOne({ where })`, not `findOneBy`: the latter's overload exceeds
+		// NOTE: `findOne({ where })`, not `findOneBy`: the latter's overload exceeds
 		// TypeScript's instantiation depth on the recursive `outputs` column type.
 		const row = await this.repo.findOne({ where: { id } });
 		if (!row) throw new StepNotFoundError(id);
 		return row;
 	}
 
-	async transitionStepStatus(id: string, from: StepStatus, to: StepStatus): Promise<boolean> {
-		return await this.transition(id, from, to);
+	async claimStep(id: string): Promise<boolean> {
+		return await this.transition(id, 'queued', 'running');
 	}
 
 	async completeStep(id: string, outputs: JsonValue): Promise<boolean> {
@@ -63,8 +64,10 @@ export class TypeOrmStepStore implements StepStore {
 		for (const nodeId of nodeIds) outputsByNodeId[nodeId] = null;
 		if (nodeIds.length === 0) return outputsByNodeId;
 
+		// Filter on `completed` rather than relying on non-completed rows having a
+		// null `outputs` column, so the contract holds however writes are ordered.
 		const rows = await this.repo.find({
-			where: { executionId, nodeId: In(nodeIds) },
+			where: { executionId, nodeId: In(nodeIds), status: 'completed' },
 			select: ['nodeId', 'outputs'],
 		});
 		for (const row of rows) outputsByNodeId[row.nodeId] = row.outputs;
