@@ -1001,7 +1001,7 @@ describe('JobProcessor', () => {
 			const relay = mock<WebhookResponseRelay>();
 			relay.assertFitsInline.mockImplementation(() => {
 				throw new WebhookResponseTooLargeError(
-					'The response is too large to be sent back from the worker (over 1 MiB)',
+					'The response is too large to be sent back from the worker (limit is 1 MiB)',
 					{ description: 'Raise N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX.' },
 				);
 			});

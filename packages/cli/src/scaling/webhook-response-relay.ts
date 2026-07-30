@@ -234,7 +234,7 @@ export class WebhookResponseRelay {
 
 	private tooLargeMessage(): string {
 		const { webhookResponseRelaySizeMaxMiB } = this.executionsConfig;
-		return `The response is too large to be sent back from the worker (over ${webhookResponseRelaySizeMaxMiB} MiB)`;
+		return `The response is too large to be sent back from the worker (limit is ${webhookResponseRelaySizeMaxMiB} MiB)`;
 	}
 
 	/**

@@ -314,7 +314,7 @@ describe('WebhookResponseRelay', () => {
 				.prepare(fullResponse('x'.repeat(3 * ONE_MIB)), ctx)
 				.catch((e: WebhookResponseTooLargeError) => e);
 
-			expect((error as WebhookResponseTooLargeError).message).toContain('over 2 MiB');
+			expect((error as WebhookResponseTooLargeError).message).toContain('limit is 2 MiB');
 			expect((error as WebhookResponseTooLargeError).description).toContain(
 				'N8N_DEFAULT_BINARY_DATA_MODE',
 			);
@@ -394,7 +394,7 @@ describe('WebhookResponseRelay', () => {
 				.prepare(response, ctx)
 				.catch((e: WebhookResponseTooLargeError) => e);
 
-			expect((error as WebhookResponseTooLargeError).message).toContain('over 2 MiB');
+			expect((error as WebhookResponseTooLargeError).message).toContain('limit is 2 MiB');
 			expect((error as WebhookResponseTooLargeError).description).toContain(
 				'N8N_WEBHOOK_RESPONSE_RELAY_SIZE_MAX',
 			);
