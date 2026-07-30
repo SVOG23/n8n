@@ -14,6 +14,7 @@ import { LicenseMocker } from '@test-integration/license';
 import { initNodeTypes } from '@test-integration/utils';
 
 import { N8nPackagesService } from '../n8n-packages.service';
+import { importPackageRequest } from './fixtures/import-request';
 import { readExport, streamToBuffer } from './utils/tar-support';
 import type { UnpackedEntry } from './utils/tar-support';
 import { buildWorkflowCallingSubWorkflow } from './utils/test-builders';
@@ -234,24 +235,9 @@ describe('workflow package export — with tags', () => {
 		);
 
 		const target = await createTeamProject('Target project', owner);
-		const result = await service.importPackage({
-			user: owner,
-			projectId: target.id,
-			packageBuffer,
-			credentialMatchingMode: 'id-only',
-			credentialMissingMode: 'must-preexist',
-			workflowConflictPolicy: 'fail',
-			workflowPublishingPolicy: 'preserve-published-state',
-			workflowIdPolicy: 'new',
-			projectConflictPolicy: 'overwrite',
-			folderConflictPolicy: 'merge',
-			overwriteDeletionPolicy: 'archive',
-			dataTableMatchingMode: 'by-id',
-			dataTableMissingMode: 'create',
-			dataTableSchemaConflictPolicy: 'keep-existing',
-			variableMissingMode: 'do-nothing',
-			missingNodeTypeMode: 'fail',
-		});
+		const result = await service.importPackage(
+			importPackageRequest({ user: owner, projectId: target.id, packageBuffer }),
+		);
 
 		expect(result.workflows).toHaveLength(1);
 		expect(result.workflows[0].status).toBe('created');

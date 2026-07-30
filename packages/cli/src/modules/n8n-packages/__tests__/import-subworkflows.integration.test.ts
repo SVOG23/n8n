@@ -9,20 +9,7 @@ import { LicenseMocker } from '@test-integration/license';
 import { initNodeTypes } from '@test-integration/utils';
 
 import { N8nPackagesService } from '../n8n-packages.service';
-import {
-	DataTableMatchingMode,
-	DataTableMissingMode,
-	DataTableSchemaConflictPolicy,
-	FolderConflictPolicy,
-	MissingNodeTypeMode,
-	OverwriteDeletionPolicy,
-	ProjectConflictPolicy,
-	VariableMissingMode,
-	WorkflowConflictPolicy,
-	WorkflowIdPolicy,
-	WorkflowPublishingPolicy,
-	type ImportPackageRequest,
-} from '../n8n-packages.types';
+import { WorkflowIdPolicy, type ImportPackageRequest } from '../n8n-packages.types';
 import {
 	buildImportPackageBuffer,
 	serializedWorkflow,
@@ -30,28 +17,14 @@ import {
 	subWorkflowRefOf,
 	workflowRequirementsFromWorkflows,
 } from './fixtures/package-fixtures';
+import { importPackageRequest } from './fixtures/import-request';
 import type { SerializedWorkflow } from '../spec/serialized/workflow.schema';
 
 type ImportPackageParams = Pick<ImportPackageRequest, 'user' | 'packageBuffer'> &
 	Partial<Pick<ImportPackageRequest, 'workflowIdPolicy'>>;
 
 async function importPackage(params: ImportPackageParams) {
-	return await Container.get(N8nPackagesService).importPackage({
-		credentialMatchingMode: 'id-only',
-		credentialMissingMode: 'must-preexist',
-		workflowConflictPolicy: WorkflowConflictPolicy.Fail,
-		workflowPublishingPolicy: WorkflowPublishingPolicy.PreservePublishedState,
-		workflowIdPolicy: WorkflowIdPolicy.New,
-		missingNodeTypeMode: MissingNodeTypeMode.Fail,
-		projectConflictPolicy: ProjectConflictPolicy.Overwrite,
-		folderConflictPolicy: FolderConflictPolicy.Merge,
-		overwriteDeletionPolicy: OverwriteDeletionPolicy.Archive,
-		dataTableMatchingMode: DataTableMatchingMode.ById,
-		dataTableMissingMode: DataTableMissingMode.Create,
-		dataTableSchemaConflictPolicy: DataTableSchemaConflictPolicy.KeepExisting,
-		variableMissingMode: VariableMissingMode.DoNothing,
-		...params,
-	});
+	return await Container.get(N8nPackagesService).importPackage(importPackageRequest(params));
 }
 
 /** Builds a package where `workflows` carry Execute Sub-workflow refs + the derived requirements. */

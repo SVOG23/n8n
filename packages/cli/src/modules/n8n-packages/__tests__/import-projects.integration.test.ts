@@ -48,6 +48,7 @@ import {
 	subWorkflowRefOf,
 	workflowRequirementsFromWorkflows,
 } from './fixtures/package-fixtures';
+import { importPackageRequest } from './fixtures/import-request';
 import { streamToBuffer } from './utils/tar-support';
 
 async function importProjects(
@@ -56,26 +57,15 @@ async function importProjects(
 	apiKeyScopes?: string[],
 	overrides?: Partial<ImportPackageRequest>,
 ) {
-	const request: ImportPackageRequest = {
-		user,
-		packageBuffer,
-		apiKeyScopes,
-		credentialMatchingMode: 'id-only',
-		credentialMissingMode: 'must-preexist',
-		workflowConflictPolicy: 'new-version',
-		workflowPublishingPolicy: 'preserve-published-state',
-		workflowIdPolicy: 'new',
-		missingNodeTypeMode: 'fail',
-		projectConflictPolicy: 'overwrite',
-		folderConflictPolicy: 'merge',
-		overwriteDeletionPolicy: 'archive',
-		dataTableMatchingMode: 'by-id',
-		dataTableMissingMode: 'create',
-		dataTableSchemaConflictPolicy: 'keep-existing',
-		variableMissingMode: 'do-nothing',
-		...overrides,
-	};
-	return await Container.get(N8nPackagesService).importPackage(request);
+	return await Container.get(N8nPackagesService).importPackage(
+		importPackageRequest({
+			user,
+			packageBuffer,
+			apiKeyScopes,
+			workflowConflictPolicy: 'new-version',
+			...overrides,
+		}),
+	);
 }
 
 const licenseMocker = new LicenseMocker();

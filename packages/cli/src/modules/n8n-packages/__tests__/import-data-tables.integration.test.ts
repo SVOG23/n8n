@@ -30,6 +30,7 @@ import {
 	serializedDataTable,
 	serializedWorkflowWithDataTable,
 } from './fixtures/package-fixtures';
+import { importPackageRequest } from './fixtures/import-request';
 import { buildWorkflowReferencingDataTables } from './utils/test-builders';
 import { streamToBuffer } from './utils/tar-support';
 
@@ -63,23 +64,9 @@ type ImportParams = { user: User; projectId: string; packageBuffer: Buffer } & P
 >;
 
 async function importPackage(params: ImportParams) {
-	return await service.importPackage({
-		credentialMatchingMode: 'id-only',
-		credentialMissingMode: 'must-preexist',
-		workflowConflictPolicy: 'fail',
-		workflowPublishingPolicy: 'preserve-published-state',
-		workflowIdPolicy: 'new',
-		missingNodeTypeMode: 'fail',
-		projectConflictPolicy: 'overwrite',
-		folderConflictPolicy: 'merge',
-		overwriteDeletionPolicy: 'archive',
-		dataTableMatchingMode: 'by-id',
-		dataTableMissingMode: 'create',
-		dataTableSchemaConflictPolicy: 'keep-existing',
-		variableMissingMode: 'do-nothing',
-		variableParentPolicy: 'project',
-		...params,
-	});
+	return await service.importPackage(
+		importPackageRequest({ variableParentPolicy: 'project', ...params }),
+	);
 }
 
 /** A package holding `tables` plus one workflow per table referencing it. */
